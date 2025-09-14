@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
+import 'batch_optimizer.dart';
 
 class StockApiService {
   static const String baseUrl = 'http://api.tushare.pro';
@@ -109,14 +110,18 @@ class StockApiService {
     }
   }
 
-  // 批量获取多个股票的K线数据（优化版本，支持分组查询）
+  // 批量获取多个股票的K线数据（优化版本，支持智能分组查询）
   static Future<Map<String, List<KlineData>>> getBatchKlineData({
     required List<String> tsCodes,
     required String kLineType,
     int days = 60,
-    int batchSize = 10, // 每批查询的股票数量
+    int? customBatchSize, // 自定义分组大小
   }) async {
     Map<String, List<KlineData>> result = {};
+    
+    // 使用智能优化器计算最优分组大小
+    final batchSize = customBatchSize ?? BatchOptimizer.getOptimalBatchSize(tsCodes.length, 'historical');
+    final delay = BatchOptimizer.getOptimalDelay(batchSize);
     
     // 将股票代码分组
     List<List<String>> batches = [];
@@ -125,7 +130,9 @@ class StockApiService {
       batches.add(tsCodes.sublist(i, end));
     }
     
-    print('📊 开始批量获取 ${tsCodes.length} 只股票的K线数据，分为 ${batches.length} 批');
+    final optimizationInfo = BatchOptimizer.getOptimizationInfo(tsCodes.length, 'historical');
+    print('📊 开始批量获取 ${tsCodes.length} 只股票的K线数据');
+    print('🚀 优化策略: 分组大小=${batchSize}, 延时=${delay.inMilliseconds}ms, 预估时间=${optimizationInfo['estimatedTime']}秒');
     
     for (int batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       final batch = batches[batchIndex];
@@ -142,9 +149,9 @@ class StockApiService {
         // 合并结果
         result.addAll(batchResult);
         
-        // 添加延迟避免请求过于频繁
+        // 使用优化的延时策略
         if (batchIndex < batches.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 300));
+          await Future.delayed(delay);
         }
       } catch (e) {
         print('❌ 第 ${batchIndex + 1} 批查询失败: $e');

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
+import 'batch_optimizer.dart';
 
 class StockPoolService {
   static const String baseUrl = 'http://api.tushare.pro';
@@ -33,14 +34,18 @@ class StockPoolService {
     }
   }
 
-  // 批量获取单日K线数据（优化版本，支持分组查询）
+  // 批量获取单日K线数据（优化版本，支持智能分组查询）
   static Future<Map<String, KlineData>> getBatchDailyKlineData({
     required List<String> tsCodes,
     DateTime? targetDate,
-    int batchSize = 20, // 每批查询的股票数量
+    int? customBatchSize, // 自定义分组大小，如果为null则使用智能优化
     Function(int current, int total)? onProgress, // 进度回调
   }) async {
     Map<String, KlineData> result = {};
+    
+    // 使用智能优化器计算最优分组大小
+    final batchSize = customBatchSize ?? BatchOptimizer.getOptimalBatchSize(tsCodes.length, 'daily');
+    final delay = BatchOptimizer.getOptimalDelay(batchSize);
     
     // 将股票代码分组
     List<List<String>> batches = [];
@@ -49,7 +54,9 @@ class StockPoolService {
       batches.add(tsCodes.sublist(i, end));
     }
     
-    print('📊 开始批量获取 ${tsCodes.length} 只股票的单日K线数据，分为 ${batches.length} 批');
+    final optimizationInfo = BatchOptimizer.getOptimizationInfo(tsCodes.length, 'daily');
+    print('📊 开始批量获取 ${tsCodes.length} 只股票的单日K线数据');
+    print('🚀 优化策略: 分组大小=${batchSize}, 延时=${delay.inMilliseconds}ms, 预估时间=${optimizationInfo['estimatedTime']}秒');
     
     for (int batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       final batch = batches[batchIndex];
@@ -68,9 +75,9 @@ class StockPoolService {
         // 合并结果
         result.addAll(batchResult);
         
-        // 添加延迟避免请求过于频繁
+        // 使用优化的延时策略
         if (batchIndex < batches.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 300));
+          await Future.delayed(delay);
         }
       } catch (e) {
         print('❌ 第 ${batchIndex + 1} 批查询失败: $e');
@@ -345,14 +352,18 @@ class StockPoolService {
   }
 
 
-  // 获取股票总市值数据
+  // 获取股票总市值数据（优化版本）
   static Future<Map<String, double>> getBatchMarketValueData({
     required List<String> tsCodes,
     DateTime? targetDate,
-    int batchSize = 20,
+    int? customBatchSize, // 自定义分组大小
     Function(int current, int total)? onProgress, // 进度回调
   }) async {
     Map<String, double> result = {};
+    
+    // 使用智能优化器计算最优分组大小
+    final batchSize = customBatchSize ?? BatchOptimizer.getOptimalBatchSize(tsCodes.length, 'market_value');
+    final delay = BatchOptimizer.getOptimalDelay(batchSize);
     
     // 将股票代码分组
     List<List<String>> batches = [];
@@ -361,7 +372,9 @@ class StockPoolService {
       batches.add(tsCodes.sublist(i, end));
     }
     
-    print('📊 开始批量获取 ${tsCodes.length} 只股票的总市值数据，分为 ${batches.length} 批');
+    final optimizationInfo = BatchOptimizer.getOptimizationInfo(tsCodes.length, 'market_value');
+    print('📊 开始批量获取 ${tsCodes.length} 只股票的总市值数据');
+    print('🚀 优化策略: 分组大小=${batchSize}, 延时=${delay.inMilliseconds}ms, 预估时间=${optimizationInfo['estimatedTime']}秒');
     
     for (int batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       final batch = batches[batchIndex];
@@ -380,9 +393,9 @@ class StockPoolService {
         // 合并结果
         result.addAll(batchResult);
         
-        // 添加延迟避免请求过于频繁
+        // 使用优化的延时策略
         if (batchIndex < batches.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 300));
+          await Future.delayed(delay);
         }
       } catch (e) {
         print('❌ 第 ${batchIndex + 1} 批总市值查询失败: $e');
@@ -913,14 +926,18 @@ class StockPoolService {
     return [];
   }
 
-  // 批量获取历史K线数据
+  // 批量获取历史K线数据（优化版本）
   static Future<Map<String, List<KlineData>>> getBatchHistoricalKlineData({
     required List<String> tsCodes,
     int days = 30,
     DateTime? targetDate,
-    int batchSize = 10, // 每批查询的股票数量
+    int? customBatchSize, // 自定义分组大小
   }) async {
     Map<String, List<KlineData>> result = {};
+    
+    // 使用智能优化器计算最优分组大小
+    final batchSize = customBatchSize ?? BatchOptimizer.getOptimalBatchSize(tsCodes.length, 'historical');
+    final delay = BatchOptimizer.getOptimalDelay(batchSize);
     
     // 将股票代码分组
     List<List<String>> batches = [];
@@ -929,7 +946,9 @@ class StockPoolService {
       batches.add(tsCodes.sublist(i, end));
     }
     
-    print('📊 开始批量获取 ${tsCodes.length} 只股票的历史K线数据，分为 ${batches.length} 批');
+    final optimizationInfo = BatchOptimizer.getOptimizationInfo(tsCodes.length, 'historical');
+    print('📊 开始批量获取 ${tsCodes.length} 只股票的历史K线数据');
+    print('🚀 优化策略: 分组大小=${batchSize}, 延时=${delay.inMilliseconds}ms, 预估时间=${optimizationInfo['estimatedTime']}秒');
     
     for (int batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       final batch = batches[batchIndex];
@@ -946,9 +965,9 @@ class StockPoolService {
         // 合并结果
         result.addAll(batchResult);
         
-        // 添加延迟避免请求过于频繁
+        // 使用优化的延时策略
         if (batchIndex < batches.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 300));
+          await Future.delayed(delay);
         }
       } catch (e) {
         print('❌ 第 ${batchIndex + 1} 批查询失败: $e');
