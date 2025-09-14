@@ -505,6 +505,7 @@ class StockPoolService {
     bool forceRefresh = false,
     double? minMarketValue, // 最小总市值（亿元）
     double? maxMarketValue, // 最大总市值（亿元）
+    DateTime? targetDate, // 目标日期，如果指定则筛选该日期的数据
     Function(int progress)? onProgress, // 进度回调函数
   }) async {
     // 检查缓存是否有效
@@ -534,10 +535,14 @@ class StockPoolService {
       // 2. 批量获取单日K线数据 (20-60%)
       final List<String> tsCodes = stockList.map((stock) => stock.tsCode).toList();
       print('准备请求 ${tsCodes.length} 只股票的K线数据...');
+      if (targetDate != null) {
+        print('目标日期: ${DateFormat('yyyy-MM-dd').format(targetDate)}');
+      }
       onProgress?.call(25);
       
       final Map<String, KlineData> klineDataMap = await getBatchDailyKlineData(
         tsCodes: tsCodes,
+        targetDate: targetDate, // 传递目标日期
         onProgress: (current, total) {
           // K线数据获取进度：25% - 55%
           final progress = 25 + (current / total) * 30;
@@ -554,6 +559,7 @@ class StockPoolService {
         onProgress?.call(60);
         marketValueMap = await getBatchMarketValueData(
           tsCodes: tsCodes,
+          targetDate: targetDate, // 传递目标日期
           onProgress: (current, total) {
             // 总市值数据获取进度：60% - 75%
             final progress = 60 + (current / total) * 15;
@@ -626,10 +632,19 @@ class StockPoolService {
 
       // 6. 保存到本地（包含K线数据）(95-100%)
       onProgress?.call(95);
-      await saveStockPoolToLocal(stockPool, klineDataMap);
+      await saveStockPoolToLocal(
+        stockPool, 
+        klineDataMap,
+        minMarketValue: minMarketValue,
+        maxMarketValue: maxMarketValue,
+        targetDate: targetDate,
+      );
       onProgress?.call(100);
 
       String conditionText = '成交额 ≥ ${poolThreshold}亿元';
+      if (targetDate != null) {
+        conditionText += ' (${DateFormat('yyyy-MM-dd').format(targetDate)})';
+      }
       if (minMarketValue != null || maxMarketValue != null) {
         conditionText += ', 总市值在[${minMarketValue ?? 0}亿, ${maxMarketValue ?? '∞'}亿]范围内';
       }
@@ -673,7 +688,13 @@ class StockPoolService {
   }
 
   // 保存股票池到本地（包含K线数据）
-  static Future<void> saveStockPoolToLocal(List<StockInfo> stockPool, Map<String, KlineData> klineDataMap) async {
+  static Future<void> saveStockPoolToLocal(
+    List<StockInfo> stockPool, 
+    Map<String, KlineData> klineDataMap, {
+    double? minMarketValue,
+    double? maxMarketValue,
+    DateTime? targetDate,
+  }) async {
     try {
       final file = File(await _getLocalFilePath());
       final jsonData = {
@@ -681,6 +702,10 @@ class StockPoolService {
         'klineData': klineDataMap.map((key, value) => MapEntry(key, value.toJson())),
         'lastUpdateTime': DateTime.now().toIso8601String(),
         'threshold': poolThreshold,
+        'minMarketValue': minMarketValue,
+        'maxMarketValue': maxMarketValue,
+        'targetDate': targetDate?.toIso8601String(),
+        'enableMarketValueFilter': minMarketValue != null || maxMarketValue != null,
       };
       await file.writeAsString(json.encode(jsonData));
       print('股票池已保存到本地，共 ${stockPool.length} 只股票');
@@ -729,6 +754,10 @@ class StockPoolService {
           'lastUpdateTime': null,
           'isValid': false,
           'threshold': poolThreshold,
+          'enableMarketValueFilter': false,
+          'minMarketValue': null,
+          'maxMarketValue': null,
+          'targetDate': null,
         };
       }
 
@@ -745,6 +774,10 @@ class StockPoolService {
         'lastUpdateTime': lastUpdateTime,
         'isValid': isValid,
         'threshold': jsonData['threshold'] ?? poolThreshold,
+        'enableMarketValueFilter': jsonData['enableMarketValueFilter'] ?? false,
+        'minMarketValue': jsonData['minMarketValue'],
+        'maxMarketValue': jsonData['maxMarketValue'],
+        'targetDate': jsonData['targetDate'] != null ? DateTime.tryParse(jsonData['targetDate']) : null,
       };
     } catch (e) {
       print('获取本地股票池信息失败: $e');
@@ -753,6 +786,10 @@ class StockPoolService {
         'lastUpdateTime': null,
         'isValid': false,
         'threshold': poolThreshold,
+        'enableMarketValueFilter': false,
+        'minMarketValue': null,
+        'maxMarketValue': null,
+        'targetDate': null,
       };
     }
   }

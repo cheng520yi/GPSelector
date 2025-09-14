@@ -9,7 +9,7 @@ import '../services/stock_pool_service.dart';
 import '../services/ma_calculation_service.dart';
 import '../services/test_api_service.dart';
 import '../services/blacklist_service.dart';
-import 'settings_screen.dart';
+import 'stock_pool_config_screen.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
@@ -467,17 +467,17 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
               onPressed: () async {
                 final result = await Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(),
+                    builder: (context) => const StockPoolConfigScreen(),
                   ),
                 );
                 
-                // 如果从设置页面返回时带有更新标志，刷新股票池信息
+                // 如果从配置页面返回时带有更新标志，刷新股票池信息
                 if (result == true) {
                   await _updatePoolInfo();
                   await _calculateAmountFilterCount();
                 }
               },
-              tooltip: '设置',
+              tooltip: '股票池配置',
             ),
         ],
       ),
