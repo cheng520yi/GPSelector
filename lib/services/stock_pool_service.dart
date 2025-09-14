@@ -159,7 +159,7 @@ class StockPoolService {
             final List<dynamic> fieldsData = data['fields'] ?? [];
             final List<String> fields = fieldsData.cast<String>();
             
-            print('📊 批量响应: 获取到 ${items.length} 条数据');
+            // 静默处理批量响应
             
             // 按股票代码分组数据
             Map<String, KlineData> result = {};
@@ -167,7 +167,6 @@ class StockPoolService {
             if (targetDate != null) {
               // 如果指定了目标日期，为每个股票找到最接近目标日期的数据
               final targetDateStr = DateFormat('yyyyMMdd').format(targetDate);
-              print('🎯 目标日期: $targetDateStr');
               
               for (var item in items) {
                 Map<String, dynamic> itemMap = {};
@@ -196,7 +195,7 @@ class StockPoolService {
                     }
                   }
                 } catch (e) {
-                  print('解析单日K线数据项失败: $e, 数据: $itemMap');
+                  // 静默处理解析错误
                 }
               }
             } else {
@@ -217,26 +216,22 @@ class StockPoolService {
                     result[tsCode] = klineData;
                   }
                 } catch (e) {
-                  print('解析单日K线数据项失败: $e, 数据: $itemMap');
+                  // 静默处理解析错误
                 }
               }
             }
             
             return result;
           } else {
-            print('API返回数据为空');
             return {};
           }
         } else {
-          print('API返回错误: ${responseData['msg']}');
           return {};
         }
       } else {
-        print('HTTP请求失败: ${response.statusCode}, 响应: ${response.body}');
         return {};
       }
     } catch (e) {
-      print('批量获取单日K线数据失败: $e');
       return {};
     }
   }
@@ -274,7 +269,7 @@ class StockPoolService {
         "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
       };
 
-      print('请求 $tsCode 的K线数据 (日期范围: $formattedStartDate - $formattedEndDate)');
+      // 静默处理单个股票K线数据请求
 
       final response = await http.post(
         Uri.parse(baseUrl),
@@ -339,14 +334,10 @@ class StockPoolService {
               }
             }
           }
-        } else {
-          print('API返回错误: ${responseData['msg']}');
         }
-      } else {
-        print('HTTP请求失败: ${response.statusCode}');
       }
     } catch (e) {
-      print('获取单日K线数据失败: $e');
+      // 静默处理错误
     }
     return null;
   }

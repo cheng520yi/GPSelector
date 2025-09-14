@@ -19,19 +19,34 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _amountThresholdController = TextEditingController();
-  final _pctChgMinController = TextEditingController();
-  final _pctChgMaxController = TextEditingController();
-  final _ma5DistanceController = TextEditingController();
-  final _ma10DistanceController = TextEditingController();
-  final _ma20DistanceController = TextEditingController();
 
   DateTime _selectedDate = DateTime.now();
-  int _selectedConsecutiveDays = 3;
   bool _isLoading = false;
+
+  // 必填项
+  double _amountThreshold = 20.0;
+
+  // 可选项
+  bool _enablePctChg = false;
+  int _pctChgMin = -10; // -10 到 10
+  int _pctChgMax = 10; // -10 到 10
+
+  bool _enableMaDistance = false;
+  MaDistanceConfig _ma5Config = MaDistanceConfig(enabled: false, distance: 5.0);
+  MaDistanceConfig _ma10Config = MaDistanceConfig(enabled: false, distance: 5.0);
+  MaDistanceConfig _ma20Config = MaDistanceConfig(enabled: false, distance: 5.0);
+
+  bool _enableConsecutiveDays = false;
+  ConsecutiveDaysConfig _consecutiveDaysConfig = ConsecutiveDaysConfig(
+    enabled: false,
+    days: 10,
+    maType: 'ma20',
+  );
 
   // 预设选项
   final List<double> _amountThresholds = [5.0, 10.0, 20.0, 50.0, 100.0];
   final List<int> _consecutiveDaysOptions = [3, 5, 10, 20];
+  final List<String> _maTypes = ['ma5', 'ma10', 'ma20'];
 
   @override
   void initState() {
@@ -44,11 +59,6 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     _nameController.dispose();
     _descriptionController.dispose();
     _amountThresholdController.dispose();
-    _pctChgMinController.dispose();
-    _pctChgMaxController.dispose();
-    _ma5DistanceController.dispose();
-    _ma10DistanceController.dispose();
-    _ma20DistanceController.dispose();
     super.dispose();
   }
 
@@ -57,25 +67,618 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
       final combination = widget.editingCombination!;
       _nameController.text = combination.name;
       _descriptionController.text = combination.description;
-      _amountThresholdController.text = combination.amountThreshold.toStringAsFixed(1);
+      _amountThresholdController.text = combination.amountThreshold.toString();
       _selectedDate = combination.selectedDate;
-      _pctChgMinController.text = combination.pctChgMin.toStringAsFixed(1);
-      _pctChgMaxController.text = combination.pctChgMax.toStringAsFixed(1);
-      _ma5DistanceController.text = combination.ma5Distance.toStringAsFixed(1);
-      _ma10DistanceController.text = combination.ma10Distance.toStringAsFixed(1);
-      _ma20DistanceController.text = combination.ma20Distance.toStringAsFixed(1);
-      _selectedConsecutiveDays = combination.consecutiveDays;
+      _amountThreshold = combination.amountThreshold;
+
+      _enablePctChg = combination.enablePctChg;
+      _pctChgMin = combination.pctChgMin;
+      _pctChgMax = combination.pctChgMax;
+
+      _enableMaDistance = combination.enableMaDistance;
+      _ma5Config = combination.ma5Config;
+      _ma10Config = combination.ma10Config;
+      _ma20Config = combination.ma20Config;
+
+      _enableConsecutiveDays = combination.enableConsecutiveDays;
+      _consecutiveDaysConfig = combination.consecutiveDaysConfig;
     } else {
-      // 设置默认值
-      _nameController.text = '';
-      _descriptionController.text = '';
-      _amountThresholdController.text = '5.0';
-      _pctChgMinController.text = '-10.0';
-      _pctChgMaxController.text = '10.0';
-      _ma5DistanceController.text = '5.0';
-      _ma10DistanceController.text = '5.0';
-      _ma20DistanceController.text = '5.0';
+      _amountThresholdController.text = _amountThreshold.toString();
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.editingCombination != null ? '编辑条件组合' : '新建条件组合'),
+        backgroundColor: Colors.blue[600],
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildBasicInfoSection(),
+              const SizedBox(height: 24),
+              _buildRequiredConditionsSection(),
+              const SizedBox(height: 24),
+              _buildOptionalConditionsSection(),
+              const SizedBox(height: 32),
+              _buildSaveButton(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBasicInfoSection() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue[600]),
+                const SizedBox(width: 8),
+                Text(
+                  '基本信息',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue[600],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: '条件组合名称 *',
+                hintText: '请输入条件组合名称',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return '请输入条件组合名称';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: '描述',
+                hintText: '请输入条件组合描述（可选）',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRequiredConditionsSection() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.red[600]),
+                const SizedBox(width: 8),
+                Text(
+                  '必填条件',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red[600],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Text(
+                    '必填',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.red[600],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildAmountThresholdField(),
+            const SizedBox(height: 16),
+            _buildDateField(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionalConditionsSection() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.tune, color: Colors.orange[600]),
+                const SizedBox(width: 8),
+                Text(
+                  '可选条件',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange[600],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: Text(
+                    '可选',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange[600],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildPctChgSection(),
+            const SizedBox(height: 16),
+            _buildMaDistanceSection(),
+            const SizedBox(height: 16),
+            _buildConsecutiveDaysSection(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAmountThresholdField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '成交额阈值 (亿元)',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _amountThresholdController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            hintText: '请输入成交额阈值',
+            border: OutlineInputBorder(),
+            suffixText: '亿元',
+          ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return '请输入成交额阈值';
+            }
+            final amount = double.tryParse(value);
+            if (amount == null || amount <= 0) {
+              return '请输入有效的成交额阈值';
+            }
+            return null;
+          },
+          onChanged: (value) {
+            final amount = double.tryParse(value);
+            if (amount != null) {
+              setState(() {
+                _amountThreshold = amount;
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: _amountThresholds.map((threshold) {
+            return FilterChip(
+              label: Text('${threshold.toStringAsFixed(0)}亿'),
+              selected: _amountThreshold == threshold,
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() {
+                    _amountThreshold = threshold;
+                    _amountThresholdController.text = threshold.toString();
+                  });
+                }
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '选择日期',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: _selectDate,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.calendar_today, color: Colors.grey[600]),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('yyyy-MM-dd').format(_selectedDate),
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const Spacer(),
+                Icon(Icons.arrow_drop_down, color: Colors.grey[600]),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPctChgSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Checkbox(
+              value: _enablePctChg,
+              onChanged: (value) {
+                setState(() {
+                  _enablePctChg = value ?? false;
+                });
+              },
+            ),
+            const Text(
+              '涨跌幅筛选',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        if (_enablePctChg) ...[
+          const SizedBox(height: 12),
+          const Text('涨跌幅范围:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          // 使用更紧凑的布局
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Column(
+              children: [
+                // 最小值行
+                Row(
+                  children: [
+                    const Text('最小值:', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _pctChgMin > -10 ? () {
+                        setState(() {
+                          _pctChgMin--;
+                          if (_pctChgMin >= _pctChgMax) {
+                            _pctChgMax = _pctChgMin + 1;
+                          }
+                        });
+                      } : null,
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                    ),
+                    Container(
+                      width: 50,
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey[400]!),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${_pctChgMin > 0 ? '+' : ''}$_pctChgMin%',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _pctChgMin < _pctChgMax - 1 ? () {
+                        setState(() {
+                          _pctChgMin++;
+                        });
+                      } : null,
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // 最大值行
+                Row(
+                  children: [
+                    const Text('最大值:', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _pctChgMax > _pctChgMin + 1 ? () {
+                        setState(() {
+                          _pctChgMax--;
+                        });
+                      } : null,
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                    ),
+                    Container(
+                      width: 50,
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey[400]!),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${_pctChgMax > 0 ? '+' : ''}$_pctChgMax%',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _pctChgMax < 10 ? () {
+                        setState(() {
+                          _pctChgMax++;
+                        });
+                      } : null,
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMaDistanceSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Checkbox(
+              value: _enableMaDistance,
+              onChanged: (value) {
+                setState(() {
+                  _enableMaDistance = value ?? false;
+                });
+              },
+            ),
+            const Text(
+              '均线偏离筛选',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        if (_enableMaDistance) ...[
+          const SizedBox(height: 8),
+          _buildMaDistanceRow('MA5', _ma5Config, (config) {
+            setState(() {
+              _ma5Config = config;
+            });
+          }),
+          const SizedBox(height: 8),
+          _buildMaDistanceRow('MA10', _ma10Config, (config) {
+            setState(() {
+              _ma10Config = config;
+            });
+          }),
+          const SizedBox(height: 8),
+          _buildMaDistanceRow('MA20', _ma20Config, (config) {
+            setState(() {
+              _ma20Config = config;
+            });
+          }),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMaDistanceRow(String maName, MaDistanceConfig config, Function(MaDistanceConfig) onChanged) {
+    return Row(
+      children: [
+        Checkbox(
+          value: config.enabled,
+          onChanged: (value) {
+            onChanged(MaDistanceConfig(
+              enabled: value ?? false,
+              distance: config.distance,
+            ));
+          },
+        ),
+        SizedBox(
+          width: 60,
+          child: Text(maName),
+        ),
+        const Text('偏离: '),
+        SizedBox(
+          width: 80,
+          child: TextFormField(
+            initialValue: config.distance.toString(),
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              suffixText: '%',
+            ),
+            onChanged: (value) {
+              final distance = double.tryParse(value);
+              if (distance != null) {
+                onChanged(MaDistanceConfig(
+                  enabled: config.enabled,
+                  distance: distance,
+                ));
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConsecutiveDaysSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Checkbox(
+              value: _enableConsecutiveDays,
+              onChanged: (value) {
+                setState(() {
+                  _enableConsecutiveDays = value ?? false;
+                });
+              },
+            ),
+            const Text(
+              '连续天数筛选',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        if (_enableConsecutiveDays) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('连续 '),
+              DropdownButton<int>(
+                value: _consecutiveDaysConfig.days,
+                items: _consecutiveDaysOptions.map((days) {
+                  return DropdownMenuItem(
+                    value: days,
+                    child: Text('$days'),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _consecutiveDaysConfig = ConsecutiveDaysConfig(
+                        enabled: _consecutiveDaysConfig.enabled,
+                        days: value,
+                        maType: _consecutiveDaysConfig.maType,
+                      );
+                    });
+                  }
+                },
+              ),
+              const Text(' 天收盘价高于 '),
+              DropdownButton<String>(
+                value: _consecutiveDaysConfig.maType,
+                items: _maTypes.map((maType) {
+                  String displayName = maType == 'ma5' ? 'MA5' : 
+                                      maType == 'ma10' ? 'MA10' : 'MA20';
+                  return DropdownMenuItem(
+                    value: maType,
+                    child: Text(displayName),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _consecutiveDaysConfig = ConsecutiveDaysConfig(
+                        enabled: _consecutiveDaysConfig.enabled,
+                        days: _consecutiveDaysConfig.days,
+                        maType: value,
+                      );
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _saveCombination,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue[600],
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        child: _isLoading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Text(
+                widget.editingCombination != null ? '更新条件组合' : '保存条件组合',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+      ),
+    );
   }
 
   Future<void> _selectDate() async {
@@ -106,27 +709,33 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
           ? widget.editingCombination!.copyWith(
               name: _nameController.text.trim(),
               description: _descriptionController.text.trim(),
-              amountThreshold: double.parse(_amountThresholdController.text),
+              amountThreshold: _amountThreshold,
               selectedDate: _selectedDate,
-              pctChgMin: double.parse(_pctChgMinController.text),
-              pctChgMax: double.parse(_pctChgMaxController.text),
-              ma5Distance: double.parse(_ma5DistanceController.text),
-              ma10Distance: double.parse(_ma10DistanceController.text),
-              ma20Distance: double.parse(_ma20DistanceController.text),
-              consecutiveDays: _selectedConsecutiveDays,
+              enablePctChg: _enablePctChg,
+              pctChgMin: _pctChgMin,
+              pctChgMax: _pctChgMax,
+              enableMaDistance: _enableMaDistance,
+              ma5Config: _ma5Config,
+              ma10Config: _ma10Config,
+              ma20Config: _ma20Config,
+              enableConsecutiveDays: _enableConsecutiveDays,
+              consecutiveDaysConfig: _consecutiveDaysConfig,
               updatedAt: DateTime.now(),
             )
           : ConditionCombinationService.createCombination(
               name: _nameController.text.trim(),
               description: _descriptionController.text.trim(),
-              amountThreshold: double.parse(_amountThresholdController.text),
+              amountThreshold: _amountThreshold,
               selectedDate: _selectedDate,
-              pctChgMin: double.parse(_pctChgMinController.text),
-              pctChgMax: double.parse(_pctChgMaxController.text),
-              ma5Distance: double.parse(_ma5DistanceController.text),
-              ma10Distance: double.parse(_ma10DistanceController.text),
-              ma20Distance: double.parse(_ma20DistanceController.text),
-              consecutiveDays: _selectedConsecutiveDays,
+              enablePctChg: _enablePctChg,
+              pctChgMin: _pctChgMin,
+              pctChgMax: _pctChgMax,
+              enableMaDistance: _enableMaDistance,
+              ma5Config: _ma5Config,
+              ma10Config: _ma10Config,
+              ma20Config: _ma20Config,
+              enableConsecutiveDays: _enableConsecutiveDays,
+              consecutiveDaysConfig: _consecutiveDaysConfig,
             );
 
       final success = await ConditionCombinationService.saveCombination(combination);
@@ -136,499 +745,37 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(widget.editingCombination != null 
-                  ? '条件组合已更新' 
-                  : '条件组合已保存'),
+                  ? '条件组合更新成功' 
+                  : '条件组合保存成功'),
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.of(context).pop(true); // 返回true表示保存成功
+          Navigator.of(context).pop(true);
         }
       } else {
         if (mounted) {
-          _showErrorDialog('保存失败，请重试');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('保存失败，请重试'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       }
     } catch (e) {
       if (mounted) {
-        _showErrorDialog('保存失败: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-      }
-    }
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('错误'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.editingCombination != null ? '编辑条件组合' : '新建条件组合'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          if (widget.editingCombination != null)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: _deleteCombination,
-              tooltip: '删除条件组合',
-            ),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 基本信息
-              _buildSectionCard(
-                title: '基本信息',
-                icon: Icons.info,
-                color: Colors.blue,
-                children: [
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: '条件组合名称 *',
-                      hintText: '例如：短线强势股筛选',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return '请输入条件组合名称';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _descriptionController,
-                    decoration: const InputDecoration(
-                      labelText: '描述',
-                      hintText: '可选：描述这个条件组合的用途',
-                      border: OutlineInputBorder(),
-                    ),
-                    maxLines: 2,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 成交额筛选
-              _buildSectionCard(
-                title: '成交额筛选',
-                icon: Icons.attach_money,
-                color: Colors.green,
-                children: [
-                  TextFormField(
-                    controller: _amountThresholdController,
-                    decoration: const InputDecoration(
-                      labelText: '最低成交额(亿元) *',
-                      hintText: '例如：5.0',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return '请输入最低成交额';
-                      }
-                      final amount = double.tryParse(value);
-                      if (amount == null || amount <= 0) {
-                        return '请输入有效的成交额';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 日期筛选
-              _buildSectionCard(
-                title: '日期筛选',
-                icon: Icons.calendar_today,
-                color: Colors.orange,
-                children: [
-                  InkWell(
-                    onTap: _selectDate,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            '选择日期: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 涨跌幅筛选
-              _buildSectionCard(
-                title: '涨跌幅筛选',
-                icon: Icons.trending_up,
-                color: Colors.purple,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _pctChgMinController,
-                          decoration: const InputDecoration(
-                            labelText: '涨跌幅最小值(%) *',
-                            hintText: '例如：-10.0',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '请输入最小值';
-                            }
-                            final min = double.tryParse(value);
-                            if (min == null) {
-                              return '请输入有效数值';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _pctChgMaxController,
-                          decoration: const InputDecoration(
-                            labelText: '涨跌幅最大值(%) *',
-                            hintText: '例如：10.0',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '请输入最大值';
-                            }
-                            final max = double.tryParse(value);
-                            if (max == null) {
-                              return '请输入有效数值';
-                            }
-                            final min = double.tryParse(_pctChgMinController.text);
-                            if (min != null && max < min) {
-                              return '最大值不能小于最小值';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 均线距离筛选
-              _buildSectionCard(
-                title: '均线距离筛选(%)',
-                icon: Icons.show_chart,
-                color: Colors.teal,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _ma5DistanceController,
-                          decoration: const InputDecoration(
-                            labelText: '距离5日均线(%) *',
-                            hintText: '例如：5.0',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '请输入5日均线距离';
-                            }
-                            final distance = double.tryParse(value);
-                            if (distance == null || distance < 0) {
-                              return '请输入有效距离';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _ma10DistanceController,
-                          decoration: const InputDecoration(
-                            labelText: '距离10日均线(%) *',
-                            hintText: '例如：5.0',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '请输入10日均线距离';
-                            }
-                            final distance = double.tryParse(value);
-                            if (distance == null || distance < 0) {
-                              return '请输入有效距离';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _ma20DistanceController,
-                          decoration: const InputDecoration(
-                            labelText: '距离20日均线(%) *',
-                            hintText: '例如：5.0',
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '请输入20日均线距离';
-                            }
-                            final distance = double.tryParse(value);
-                            if (distance == null || distance < 0) {
-                              return '请输入有效距离';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 连续天数筛选
-              _buildSectionCard(
-                title: '连续天数筛选',
-                icon: Icons.trending_up,
-                color: Colors.indigo,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: _selectedConsecutiveDays,
-                          decoration: const InputDecoration(
-                            labelText: '连续天数 *',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: _consecutiveDaysOptions.map((days) {
-                            return DropdownMenuItem(
-                              value: days,
-                              child: Text('连续${days}天'),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedConsecutiveDays = value!;
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '收盘价高于20日线',
-                            style: TextStyle(
-                              color: Colors.indigo[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // 保存按钮
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _saveCombination,
-                  icon: _isLoading 
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: Text(_isLoading ? '保存中...' : '保存条件组合'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green[600],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required List<Widget> children,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 标题栏
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(icon, color: color, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 内容区域
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: children,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _deleteCombination() async {
-    if (widget.editingCombination == null) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定要删除条件组合"${widget.editingCombination!.name}"吗？此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        final success = await ConditionCombinationService.deleteCombination(
-          widget.editingCombination!.id,
-        );
-
-        if (success) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('条件组合已删除'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.of(context).pop(true); // 返回true表示删除成功
-          }
-        } else {
-          if (mounted) {
-            _showErrorDialog('删除失败，请重试');
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          _showErrorDialog('删除失败: $e');
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
       }
     }
   }

@@ -44,6 +44,13 @@ class MaCalculationService {
     return ((currentPrice - ma) / ma * 100).abs();
   }
 
+  // 计算均线偏离百分比
+  static double calculateMaDistance(double currentPrice, double ma) {
+    if (ma == 0) return 0.0;
+    // 计算百分比距离：(当前价格 - 均线) / 均线 * 100
+    return ((currentPrice - ma) / ma * 100).abs();
+  }
+
   // 检查是否满足均线距离条件（百分比）
   static bool checkMaDistanceCondition(
     double currentPrice,

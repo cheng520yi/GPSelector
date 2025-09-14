@@ -32,14 +32,17 @@ class StockApiService {
     required String tsCode,
     required String kLineType,
     int days = 60,
+    String? endDate, // 可选的结束日期，格式为yyyyMMdd
   }) async {
     try {
       // 计算开始和结束日期
-      final DateTime endDate = DateTime.now();
-      final DateTime startDate = endDate.subtract(Duration(days: days));
+      final DateTime endDateTime = endDate != null 
+          ? DateTime.parse('${endDate.substring(0,4)}-${endDate.substring(4,6)}-${endDate.substring(6,8)}')
+          : DateTime.now();
+      final DateTime startDate = endDateTime.subtract(Duration(days: days));
       
       final String formattedStartDate = DateFormat('yyyyMMdd').format(startDate);
-      final String formattedEndDate = DateFormat('yyyyMMdd').format(endDate);
+      final String formattedEndDate = DateFormat('yyyyMMdd').format(endDateTime);
 
       final Map<String, dynamic> requestData = {
         "api_name": kLineType,
@@ -62,7 +65,6 @@ class StockApiService {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
-        print('API响应数据: $responseData');
         
         if (responseData['code'] == 0) {
           final data = responseData['data'];
@@ -70,9 +72,6 @@ class StockApiService {
             final List<dynamic> items = data['items'] ?? [];
             final List<dynamic> fieldsData = data['fields'] ?? [];
             final List<String> fields = fieldsData.cast<String>();
-            
-            print('字段列表: $fields');
-            print('数据项数量: ${items.length}');
             
             List<KlineData> klineDataList = [];
             
@@ -84,7 +83,7 @@ class StockApiService {
               try {
                 klineDataList.add(KlineData.fromJson(itemMap));
               } catch (e) {
-                print('解析K线数据项失败: $e, 数据: $itemMap');
+                // 静默处理解析错误
               }
             }
             
@@ -93,19 +92,15 @@ class StockApiService {
             
             return klineDataList;
           } else {
-            print('API返回数据为空');
             return [];
           }
         } else {
-          print('API返回错误: ${responseData['msg']}');
           return [];
         }
       } else {
-        print('HTTP请求失败: ${response.statusCode}, 响应: ${response.body}');
         return [];
       }
     } catch (e) {
-      print('获取K线数据失败: $e');
       return [];
     }
   }
@@ -225,7 +220,7 @@ class StockApiService {
             final List<dynamic> fieldsData = data['fields'] ?? [];
             final List<String> fields = fieldsData.cast<String>();
             
-            print('📊 批量响应: 获取到 ${items.length} 条数据');
+            // 静默处理批量响应
             
             // 按股票代码分组数据
             Map<String, List<KlineData>> result = {};
@@ -245,7 +240,7 @@ class StockApiService {
                 }
                 result[tsCode]!.add(klineData);
               } catch (e) {
-                print('解析K线数据项失败: $e, 数据: $itemMap');
+                // 静默处理解析错误
               }
             }
             
@@ -256,19 +251,15 @@ class StockApiService {
             
             return result;
           } else {
-            print('API返回数据为空');
             return {};
           }
         } else {
-          print('API返回错误: ${responseData['msg']}');
           return {};
         }
       } else {
-        print('HTTP请求失败: ${response.statusCode}, 响应: ${response.body}');
         return {};
       }
     } catch (e) {
-      print('批量获取K线数据失败: $e');
       return {};
     }
   }

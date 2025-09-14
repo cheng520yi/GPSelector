@@ -8,6 +8,7 @@ import '../services/stock_pool_service.dart';
 import '../services/ma_calculation_service.dart';
 import '../services/blacklist_service.dart';
 import '../services/condition_combination_service.dart';
+import '../services/stock_filter_service.dart';
 import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
 
@@ -78,9 +79,15 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     print('   - 成交额: ≥ ${_selectedCombination!.amountThreshold}亿元');
     print('   - 黑名单过滤: 移除黑名单中的股票');
     print('   - 日期: ${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}');
-    print('   - 涨跌幅: ${_selectedCombination!.pctChgMin}% ~ ${_selectedCombination!.pctChgMax}%');
-    print('   - 均线距离: 5日≤${_selectedCombination!.ma5Distance}%, 10日≤${_selectedCombination!.ma10Distance}%, 20日≤${_selectedCombination!.ma20Distance}%');
-    print('   - 连续天数: ${_selectedCombination!.consecutiveDays}天收盘价高于20日线');
+    if (_selectedCombination!.enablePctChg) {
+      print('   - 涨跌幅: ${_selectedCombination!.pctChgMin}%~${_selectedCombination!.pctChgMax}%');
+    }
+    if (_selectedCombination!.enableMaDistance) {
+      print('   - 均线偏离: ${_selectedCombination!.shortDescription}');
+    }
+    if (_selectedCombination!.enableConsecutiveDays) {
+      print('   - 连续天数: ${_selectedCombination!.consecutiveDaysConfig.days}天收盘价高于${_selectedCombination!.consecutiveDaysConfig.maType}');
+    }
     
     setState(() {
       _isLoading = true;
@@ -100,48 +107,27 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     }
 
     try {
-      // 从本地加载股票池和K线数据
-      print('📁 从本地加载股票池数据...');
-      final localData = await StockPoolService.loadStockPoolFromLocal();
-      List<StockInfo> stockPool = localData['stockPool'] as List<StockInfo>;
-      Map<String, KlineData> klineDataMap = localData['klineData'] as Map<String, KlineData>;
-      
-      print('📈 本地股票池: ${stockPool.length}只股票');
-      
-      // 如果本地没有股票池，则构建新的
-      if (stockPool.isEmpty) {
-        print('⚠️ 本地股票池为空，开始构建新股票池...');
-        stockPool = await StockPoolService.buildStockPool();
-        // 重新加载本地数据
-        final newLocalData = await StockPoolService.loadStockPoolFromLocal();
-        klineDataMap = newLocalData['klineData'] as Map<String, KlineData>;
-        print('✅ 新股票池构建完成: ${stockPool.length}只股票');
-      } else {
-        print('📁 使用本地股票池: ${stockPool.length}只股票');
-        // 检查是否需要更新K线数据
-        print('🔄 检查K线数据是否需要更新...');
-        final updatedKlineData = await StockPoolService.updateKlineDataIfNeeded(stockPool);
-        if (updatedKlineData.isNotEmpty) {
-          print('📊 更新K线数据: ${updatedKlineData.length}只股票');
-          klineDataMap = updatedKlineData;
-          // 保存更新后的K线数据
-          await StockPoolService.saveStockPoolToLocal(stockPool, klineDataMap);
-        } else {
-          print('✅ K线数据仍然有效，无需更新');
-        }
-      }
-
-      // 从股票池中筛选符合条件的数据
-      print('🔍 开始应用筛选条件...');
-      List<StockRanking> rankings = await _filterFromStockPool(stockPool, klineDataMap);
+      // 使用新的条件组合筛选方法
+      print('🔍 使用条件组合筛选股票...');
+      List<StockRanking> rankings = await StockFilterService.filterStocksWithCombination(
+        combination: _selectedCombination!,
+        onProgress: (current, total) {
+          if (mounted) {
+            setState(() {
+              _currentProgressText = '正在筛选股票... ($current/$total)';
+              _currentStockIndex = current;
+              _totalStocks = total;
+            });
+          }
+        },
+      );
 
       print('🎯 筛选完成! 找到 ${rankings.length} 只符合条件的股票');
       if (rankings.isNotEmpty) {
         print('📋 前5只股票:');
         for (int i = 0; i < math.min(5, rankings.length); i++) {
           final ranking = rankings[i];
-          final pctChg = _calculatePctChg(ranking.klineData);
-          print('   ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.symbol}) - 成交额: ${ranking.amountInYi.toStringAsFixed(2)}亿元, 涨跌幅: ${pctChg.toStringAsFixed(2)}%');
+          print('   ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.symbol}) - 当前价: ${ranking.klineData.close.toStringAsFixed(2)}元, 成交额: ${ranking.amountInYi.toStringAsFixed(2)}亿元, 涨跌幅: ${ranking.klineData.pctChg.toStringAsFixed(2)}%');
         }
       }
 
@@ -164,256 +150,6 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     }
   }
 
-  Future<List<StockRanking>> _filterFromStockPool(List<StockInfo> stockPool, Map<String, KlineData> klineDataMap) async {
-    print('🔍 开始筛选过程...');
-    
-    // 条件1：按成交额筛选（使用选择日期的数据）
-    print('📊 条件1: 按成交额筛选 (≥ ${_selectedCombination!.amountThreshold}亿元)');
-    print('📅 筛选日期: ${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}');
-    List<StockRanking> condition1Results = [];
-    
-    // 获取选择日期的K线数据
-    final List<String> tsCodes = stockPool.map((stock) => stock.tsCode).toList();
-    print('📡 获取${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}的K线数据，共${tsCodes.length}只股票');
-    
-    final selectedDateKlineData = await StockPoolService.getBatchDailyKlineData(
-      tsCodes: tsCodes,
-      targetDate: _selectedCombination!.selectedDate, // 使用选择日期
-    );
-    
-    print('✅ 获取到${selectedDateKlineData.length}只股票的${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}数据');
-    
-    for (StockInfo stock in stockPool) {
-      final KlineData? klineData = selectedDateKlineData[stock.tsCode];
-      
-      if (klineData != null && klineData.amountInYi >= _selectedCombination!.amountThreshold) {
-        print('   ✅ ${stock.name}: 成交额${klineData.amountInYi.toStringAsFixed(2)}亿元 (${klineData.tradeDate})');
-        condition1Results.add(StockRanking(
-          stockInfo: stock,
-          klineData: klineData,
-          amountInYi: klineData.amountInYi,
-          rank: 0, // 临时排名，稍后会重新排序
-        ));
-      } else if (klineData != null) {
-        print('   ❌ ${stock.name}: 成交额${klineData.amountInYi.toStringAsFixed(2)}亿元 < ${_selectedCombination!.amountThreshold}亿元 (${klineData.tradeDate})');
-      } else {
-        print('   ⚠️ ${stock.name}: 未找到${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}的数据');
-      }
-    }
-    print('✅ 条件1完成: ${condition1Results.length}只股票通过成交额筛选');
-    
-    // 更新进度
-    setState(() {
-      _currentProgressText = '条件1完成: ${condition1Results.length}只股票通过成交额筛选\n下一步: 黑名单过滤';
-    });
-
-    // 黑名单过滤：从条件1的结果中移除黑名单股票
-    print('🚫 黑名单过滤: 移除黑名单中的股票');
-    List<StockRanking> blacklistFilteredResults = [];
-    final blacklist = await BlacklistService.getBlacklist();
-    
-    for (StockRanking ranking in condition1Results) {
-      if (!blacklist.contains(ranking.stockInfo.tsCode)) {
-        blacklistFilteredResults.add(ranking);
-      } else {
-        print('   🚫 ${ranking.stockInfo.name} 在黑名单中，已移除');
-      }
-    }
-    
-    print('✅ 黑名单过滤完成: ${blacklistFilteredResults.length}只股票通过黑名单过滤');
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '黑名单过滤完成: ${blacklistFilteredResults.length}只股票通过黑名单过滤\n下一步: 条件2 - 涨跌幅筛选';
-    });
-
-    // 条件2：按涨跌幅筛选（从黑名单过滤后的结果中筛选）
-    print('📈 条件2: 按涨跌幅筛选 (${_selectedCombination!.pctChgMin}% ~ ${_selectedCombination!.pctChgMax}%)');
-    print('📅 筛选日期: ${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}');
-    List<StockRanking> condition2Results = [];
-    
-    // 获取需要重新请求K线数据的股票代码
-    final List<String> tsCodesForCondition2 = blacklistFilteredResults.map((r) => r.stockInfo.tsCode).toList();
-    print('📡 需要获取${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}K线数据的股票: ${tsCodesForCondition2.length}只');
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '条件2进行中: 正在获取${tsCodesForCondition2.length}只股票的${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}K线数据...';
-    });
-    
-    // 批量获取指定日期的K线数据
-    final Map<String, KlineData> condition2KlineData = 
-        await StockPoolService.getBatchDailyKlineData(tsCodes: tsCodesForCondition2, targetDate: _selectedCombination!.selectedDate);
-    print('✅ ${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}K线数据获取完成');
-    
-    for (StockRanking ranking in blacklistFilteredResults) {
-      final KlineData? selectedDateKline = condition2KlineData[ranking.stockInfo.tsCode];
-      
-      if (selectedDateKline != null) {
-        // 计算涨跌幅：(close - pre_close) / pre_close * 100
-        final double pctChg = selectedDateKline.preClose > 0 
-            ? (selectedDateKline.close - selectedDateKline.preClose) / selectedDateKline.preClose * 100
-            : 0.0;
-        print('   ${ranking.stockInfo.name}: 涨跌幅 ${pctChg.toStringAsFixed(2)}% (${selectedDateKline.tradeDate})');
-        
-        if (pctChg >= _selectedCombination!.pctChgMin && pctChg <= _selectedCombination!.pctChgMax) {
-          // 更新ranking的K线数据为选择日期的数据
-          final updatedRanking = StockRanking(
-            stockInfo: ranking.stockInfo,
-            klineData: selectedDateKline,
-            amountInYi: selectedDateKline.amountInYi,
-            rank: ranking.rank,
-          );
-          condition2Results.add(updatedRanking);
-        }
-      } else {
-        print('   ⚠️ ${ranking.stockInfo.name}: 未找到${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)}的K线数据');
-      }
-    }
-    print('✅ 条件2完成: ${condition2Results.length}只股票通过涨跌幅筛选');
-    print('📋 条件2通过的股票列表:');
-    for (int i = 0; i < condition2Results.length; i++) {
-      final ranking = condition2Results[i];
-      final pctChg = _calculatePctChg(ranking.klineData);
-      print('   ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.symbol}) - 涨跌幅: ${pctChg.toStringAsFixed(2)}%');
-    }
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '条件2完成: ${condition2Results.length}只股票通过涨跌幅筛选\n下一步: 条件3 - 均线距离筛选';
-    });
-
-    // 条件3：按均线距离筛选（从条件2的结果中筛选）
-        print('📊 条件3: 按均线距离筛选 (5日≤${_selectedCombination!.ma5Distance}%, 10日≤${_selectedCombination!.ma10Distance}%, 20日≤${_selectedCombination!.ma20Distance}%)');
-    print('📅 基于选择日期: ${DateFormat('yyyy-MM-dd').format(_selectedCombination!.selectedDate)} 计算均线');
-    List<StockRanking> condition3Results = [];
-    
-    // 获取需要计算均线的股票代码
-    final List<String> tsCodesForMa = condition2Results.map((r) => r.stockInfo.tsCode).toList();
-    print('📡 需要获取历史K线数据的股票: ${tsCodesForMa.length}只');
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '条件3进行中: 正在获取${tsCodesForMa.length}只股票的历史K线数据...';
-    });
-    
-    // 批量获取历史K线数据（基于选择日期）
-    print('🔄 开始批量获取历史K线数据...');
-    final Map<String, List<KlineData>> historicalData = 
-        await StockPoolService.getBatchHistoricalKlineData(tsCodes: tsCodesForMa, days: 60, targetDate: _selectedCombination!.selectedDate);
-    print('✅ 历史K线数据获取完成');
-    
-    for (int i = 0; i < condition2Results.length; i++) {
-      final ranking = condition2Results[i];
-      _currentStockIndex = i + 1;
-      
-      // 更新进度提示
-      setState(() {
-        _currentProgressText = '条件3进行中: 处理第${_currentStockIndex}/${condition2Results.length}只股票\n正在计算${ranking.stockInfo.name}的均线距离...';
-      });
-      
-      final List<KlineData> historicalKlines = historicalData[ranking.stockInfo.tsCode] ?? [];
-      
-      if (historicalKlines.length >= 20) { // 确保有足够的数据计算20日均线
-        // 计算均线
-        final double ma5 = MaCalculationService.calculateMA5(historicalKlines);
-        final double ma10 = MaCalculationService.calculateMA10(historicalKlines);
-        final double ma20 = MaCalculationService.calculateMA20(historicalKlines);
-        
-        // 使用选择日期的收盘价作为当前价格
-        final currentPrice = ranking.klineData.close;
-        
-        // 检查均线距离条件
-        if (MaCalculationService.checkMaDistanceCondition(
-          currentPrice,
-          ma5,
-          ma10,
-          ma20,
-          _selectedCombination!.ma5Distance,
-          _selectedCombination!.ma10Distance,
-          _selectedCombination!.ma20Distance,
-          ranking.stockInfo.name, // 传入股票名称
-        )) {
-          condition3Results.add(ranking);
-        }
-      } else {
-        print('⚠️ ${ranking.stockInfo.name} 历史数据不足 (${historicalKlines.length}天 < 20天)');
-      }
-    }
-    print('✅ 条件3完成: ${condition3Results.length}只股票通过均线距离筛选');
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '条件3完成: ${condition3Results.length}只股票通过均线距离筛选\n下一步: 条件4 - 连续天数筛选';
-    });
-
-    // 条件4：连续天数筛选（从条件3的结果中筛选）
-    print('📈 条件4: 连续${_selectedCombination!.consecutiveDays}天收盘价高于20日线筛选');
-    List<StockRanking> condition4Results = [];
-    _totalStocks = condition3Results.length;
-    
-    for (int i = 0; i < condition3Results.length; i++) {
-      final ranking = condition3Results[i];
-      _currentStockIndex = i + 1;
-      
-      // 更新进度提示
-      setState(() {
-        _currentProgressText = '条件5进行中: 处理第${_currentStockIndex}/${_totalStocks}只股票\n正在检查${ranking.stockInfo.name}的连续天数条件...';
-      });
-      // 获取历史K线数据用于计算20日均线（基于选择日期）
-      final historicalKlines = await StockPoolService.getHistoricalKlineData(
-        tsCode: ranking.stockInfo.tsCode, 
-        days: 60, // 获取60天数据确保有足够交易日数据计算20日均线
-        targetDate: _selectedCombination!.selectedDate
-      );
-      
-      if (historicalKlines.length >= 20) {
-        // 找到选择日期在历史数据中的索引
-        int selectedDateIndex = -1;
-        final selectedDateStr = DateFormat('yyyyMMdd').format(_selectedCombination!.selectedDate);
-        for (int i = 0; i < historicalKlines.length; i++) {
-          if (historicalKlines[i].tradeDate == selectedDateStr) {
-            selectedDateIndex = i;
-            break;
-          }
-        }
-        
-        if (selectedDateIndex == -1) {
-          print('⚠️ ${ranking.stockInfo.name} 未找到选择日期数据');
-          continue;
-        }
-        
-        // 使用新的连续天数检查方法
-        final meetsCondition = MaCalculationService.checkConsecutiveDaysAboveMA20(
-          historicalKlines,
-          _selectedCombination!.consecutiveDays,
-          selectedDateIndex, // 从选择日期开始往前检查
-        );
-        
-        if (meetsCondition) {
-          condition4Results.add(ranking);
-          print('✅ ${ranking.stockInfo.name} 连续${_selectedCombination!.consecutiveDays}天收盘价高于20日线');
-        } else {
-          print('❌ ${ranking.stockInfo.name} 不满足连续${_selectedCombination!.consecutiveDays}天收盘价高于20日线条件');
-        }
-      } else {
-        print('⚠️ ${ranking.stockInfo.name} 历史数据不足');
-      }
-    }
-    print('✅ 条件4完成: ${condition4Results.length}只股票通过连续天数筛选');
-    
-    // 更新进度提示
-    setState(() {
-      _currentProgressText = '条件4完成: ${condition4Results.length}只股票通过连续天数筛选\n下一步: 按成交额排序';
-    });
-
-    // 按成交额排序
-    print('🔄 按成交额排序...');
-    final sortedResults = StockRanking.sortByAmount(condition4Results);
-    print('✅ 排序完成，最终结果: ${sortedResults.length}只股票');
-    
-    return sortedResults;
-  }
 
 
   void _showErrorDialog(String message) {
@@ -749,11 +485,19 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
           const SizedBox(height: 4),
           _buildConditionRow('📅 筛选日期', DateFormat('yyyy-MM-dd').format(combination.selectedDate)),
           _buildConditionRow('💰 成交额', '≥ ${combination.amountThreshold}亿元'),
-          _buildConditionRow('📈 涨跌幅', '${combination.pctChgMin}% ~ ${combination.pctChgMax}%'),
-          _buildConditionRow('📊 5日线距离', '≤ ${combination.ma5Distance}%'),
-          _buildConditionRow('📊 10日线距离', '≤ ${combination.ma10Distance}%'),
-          _buildConditionRow('📊 20日线距离', '≤ ${combination.ma20Distance}%'),
-          _buildConditionRow('⏰ 连续天数', '${combination.consecutiveDays}天收盘价高于20日线'),
+          if (combination.enablePctChg)
+            _buildConditionRow('📈 涨跌幅', '${combination.pctChgMin}%~${combination.pctChgMax}%'),
+          if (combination.enableMaDistance) ...[
+            if (combination.ma5Config.enabled)
+              _buildConditionRow('📊 5日线偏离', '≤ ${combination.ma5Config.distance}%'),
+            if (combination.ma10Config.enabled)
+              _buildConditionRow('📊 10日线偏离', '≤ ${combination.ma10Config.distance}%'),
+            if (combination.ma20Config.enabled)
+              _buildConditionRow('📊 20日线偏离', '≤ ${combination.ma20Config.distance}%'),
+          ],
+          if (combination.enableConsecutiveDays) ...[
+            _buildConditionRow('⏰ 连续天数', '${combination.consecutiveDaysConfig.days}天收盘价高于${combination.consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : combination.consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20'}'),
+          ],
         ],
       ],
     );

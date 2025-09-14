@@ -1,13 +1,124 @@
+import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/stock_ranking.dart';
 import 'stock_api_service.dart';
 import 'stock_pool_service.dart';
+import 'condition_combination_service.dart';
+import 'ma_calculation_service.dart';
 
 class StockFilterService {
   // 预定义的成交额筛选条件
   static const List<double> amountThresholds = [5.0, 10.0, 20.0, 50.0, 100.0];
   static const double defaultMinAmountThreshold = 5.0; // 默认最低成交额阈值（亿元）
+
+  // 基于条件组合筛选股票
+  static Future<List<StockRanking>> filterStocksWithCombination({
+    required ConditionCombination combination,
+    Function(int current, int total)? onProgress,
+  }) async {
+    try {
+      print('🎯 开始使用条件组合筛选股票: ${combination.name}');
+      print('📋 筛选条件: ${combination.shortDescription}');
+      
+      // 1. 获取本地股票池
+      print('📊 获取本地股票池...');
+      final localData = await StockPoolService.loadStockPoolFromLocal();
+      final List<StockInfo> stockPool = localData['stockPool'] as List<StockInfo>;
+      if (stockPool.isEmpty) {
+        print('❌ 本地股票池为空，请先配置股票池');
+        return [];
+      }
+      print('✅ 从本地获取到 ${stockPool.length} 只股票');
+
+      // 2. 获取选择日期的K线数据
+      print('📡 获取${combination.selectedDate}的K线数据...');
+      final List<String> tsCodes = stockPool.map((stock) => stock.tsCode).toList();
+      final Map<String, KlineData> klineDataMap = 
+          await StockPoolService.getBatchDailyKlineData(
+            tsCodes: tsCodes,
+            targetDate: combination.selectedDate,
+            onProgress: onProgress,
+          );
+      print('✅ 获取到 ${klineDataMap.length} 只股票的K线数据');
+
+      // 3. 第一轮筛选：成交额（必填条件）
+      print('🔍 条件1: 成交额筛选 (≥${combination.amountThreshold}亿元)');
+      List<StockRanking> candidates = [];
+      for (StockInfo stock in stockPool) {
+        final KlineData? klineData = klineDataMap[stock.tsCode];
+        if (klineData != null && klineData.amountInYi >= combination.amountThreshold) {
+          candidates.add(StockRanking(
+            stockInfo: stock,
+            klineData: klineData,
+            amountInYi: klineData.amountInYi,
+            rank: 0,
+          ));
+        }
+      }
+      print('✅ 条件1完成: ${candidates.length}只股票通过成交额筛选');
+      _printStockPool(candidates, '条件1-成交额筛选');
+
+      // 4. 第二轮筛选：涨跌幅（可选条件）
+      if (combination.enablePctChg) {
+        print('🔍 条件2: 涨跌幅筛选 (${combination.pctChgMin}%~${combination.pctChgMax}%)');
+        List<StockRanking> filteredCandidates = [];
+        int processed = 0;
+        
+        for (StockRanking ranking in candidates) {
+          processed++;
+          if (processed <= 5) {
+            final pctChg = ranking.klineData.pctChg;
+            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
+            if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
+              print('    ✅ 通过涨跌幅筛选');
+              filteredCandidates.add(ranking);
+            } else {
+              print('    ❌ 未通过涨跌幅筛选');
+            }
+          } else {
+            // 对于第6个及以后的股票，只进行筛选不打印详情
+            final pctChg = ranking.klineData.pctChg;
+            if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
+              filteredCandidates.add(ranking);
+            }
+          }
+        }
+        
+        candidates = filteredCandidates;
+        print('✅ 条件2完成: ${candidates.length}只股票通过涨跌幅筛选');
+        _printStockPool(candidates, '条件2-涨跌幅筛选');
+      }
+
+      // 5. 第三轮筛选：均线偏离（可选条件）
+      if (combination.enableMaDistance) {
+        print('🔍 条件3: 均线偏离筛选');
+        candidates = await _filterByMaDistance(candidates, combination);
+        print('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
+        _printStockPool(candidates, '条件3-均线偏离筛选');
+      }
+
+      // 6. 第四轮筛选：连续天数（可选条件）
+      if (combination.enableConsecutiveDays) {
+        print('🔍 条件4: 连续天数筛选');
+        candidates = await _filterByConsecutiveDays(candidates, combination);
+        print('✅ 条件4完成: ${candidates.length}只股票通过连续天数筛选');
+        _printStockPool(candidates, '条件4-连续天数筛选');
+      }
+
+      // 7. 按成交额排序
+      print('🔄 按成交额排序...');
+      final sortedCandidates = StockRanking.sortByAmount(candidates);
+      print('✅ 排序完成，最终结果: ${sortedCandidates.length}只股票');
+      _printStockPool(sortedCandidates, '最终结果');
+
+      return sortedCandidates;
+      
+    } catch (e) {
+      print('❌ 条件组合筛选失败: $e');
+      return [];
+    }
+  }
 
   // 基于股票池筛选符合条件的股票（快速筛选）
   static Future<List<StockRanking>> filterStocksFromPool({
@@ -48,6 +159,258 @@ class StockFilterService {
       print('从股票池筛选股票失败: $e');
       return [];
     }
+  }
+
+  // 打印股票池信息
+  static void _printStockPool(List<StockRanking> candidates, String stage) {
+    if (candidates.isEmpty) {
+      print('📋 $stage: 无符合条件的股票');
+      return;
+    }
+    
+    print('📋 $stage: 共${candidates.length}只股票');
+    // 只打印前5只股票
+    final printCount = candidates.length > 5 ? 5 : candidates.length;
+    for (int i = 0; i < printCount; i++) {
+      final ranking = candidates[i];
+      print('  ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}) - 当前价: ${ranking.klineData.close.toStringAsFixed(2)}元, 成交额: ${ranking.amountInYi.toStringAsFixed(2)}亿元, 涨跌幅: ${ranking.klineData.pctChg.toStringAsFixed(2)}%');
+    }
+    if (candidates.length > 5) {
+      print('  ... 还有${candidates.length - 5}只股票');
+    }
+  }
+
+  // 均线偏离筛选
+  static Future<List<StockRanking>> _filterByMaDistance(
+    List<StockRanking> candidates,
+    ConditionCombination combination,
+  ) async {
+    List<StockRanking> filteredCandidates = [];
+    int processed = 0;
+    
+    for (StockRanking ranking in candidates) {
+      processed++;
+      // 只打印前5个股票的详细过程
+      bool shouldPrintDetails = processed <= 5;
+      
+      try {
+        if (processed % 10 == 0) {
+          print('  📊 均线偏离筛选进度: $processed/${candidates.length}');
+        }
+        
+        // 获取历史K线数据来计算均线 - 获取到选择日期的历史数据
+        final historicalData = await StockApiService.getKlineData(
+          tsCode: ranking.stockInfo.tsCode,
+          kLineType: 'daily',
+          days: 30, // 获取30天数据确保有足够数据计算均线
+          endDate: DateFormat('yyyyMMdd').format(combination.selectedDate), // 指定结束日期为选择日期
+        );
+        
+        if (historicalData.length < 20) {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 数据不足，跳过');
+          }
+          continue; // 数据不足，跳过
+        }
+        
+        bool passesMaDistance = true;
+        List<String> failedConditions = [];
+        
+        // 检查MA5偏离
+        if (combination.ma5Config.enabled) {
+          final ma5 = MaCalculationService.calculateMA5(historicalData);
+          final ma5Distance = MaCalculationService.calculateMaDistance(
+            ranking.klineData.close,
+            ma5,
+          );
+          if (shouldPrintDetails) {
+            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${ranking.klineData.close.toStringAsFixed(2)}元, MA5=${ma5.toStringAsFixed(2)}元, MA5偏离 ${ma5Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma5Config.distance}%)');
+          }
+          if (ma5Distance > combination.ma5Config.distance) {
+            passesMaDistance = false;
+            failedConditions.add('MA5偏离${ma5Distance.toStringAsFixed(2)}% > ${combination.ma5Config.distance}%');
+          }
+        }
+        
+        // 检查MA10偏离
+        if (combination.ma10Config.enabled && passesMaDistance) {
+          final ma10 = MaCalculationService.calculateMA10(historicalData);
+          final ma10Distance = MaCalculationService.calculateMaDistance(
+            ranking.klineData.close,
+            ma10,
+          );
+          if (shouldPrintDetails) {
+            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${ranking.klineData.close.toStringAsFixed(2)}元, MA10=${ma10.toStringAsFixed(2)}元, MA10偏离 ${ma10Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma10Config.distance}%)');
+          }
+          if (ma10Distance > combination.ma10Config.distance) {
+            passesMaDistance = false;
+            failedConditions.add('MA10偏离${ma10Distance.toStringAsFixed(2)}% > ${combination.ma10Config.distance}%');
+          }
+        }
+        
+        // 检查MA20偏离
+        if (combination.ma20Config.enabled && passesMaDistance) {
+          final ma20 = MaCalculationService.calculateMA20(historicalData);
+          final ma20Distance = MaCalculationService.calculateMaDistance(
+            ranking.klineData.close,
+            ma20,
+          );
+          if (shouldPrintDetails) {
+            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${ranking.klineData.close.toStringAsFixed(2)}元, MA20=${ma20.toStringAsFixed(2)}元, MA20偏离 ${ma20Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma20Config.distance}%)');
+          }
+          if (ma20Distance > combination.ma20Config.distance) {
+            passesMaDistance = false;
+            failedConditions.add('MA20偏离${ma20Distance.toStringAsFixed(2)}% > ${combination.ma20Config.distance}%');
+          }
+        }
+        
+        if (passesMaDistance) {
+          if (shouldPrintDetails) {
+            print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线偏离筛选');
+          }
+          filteredCandidates.add(ranking);
+        } else {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线偏离筛选 - ${failedConditions.join(', ')}');
+          }
+        }
+      } catch (e) {
+        if (shouldPrintDetails) {
+          print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+        }
+        continue;
+      }
+    }
+    
+    return filteredCandidates;
+  }
+
+  // 连续天数筛选
+  static Future<List<StockRanking>> _filterByConsecutiveDays(
+    List<StockRanking> candidates,
+    ConditionCombination combination,
+  ) async {
+    List<StockRanking> filteredCandidates = [];
+    int processed = 0;
+    
+    for (StockRanking ranking in candidates) {
+      processed++;
+      // 只打印前5个股票的详细过程
+      bool shouldPrintDetails = processed <= 5;
+      
+      try {
+        if (processed % 10 == 0) {
+          print('  📊 连续天数筛选进度: $processed/${candidates.length}');
+        }
+        
+        // 获取历史K线数据 - 获取到选择日期的历史数据
+        final historicalData = await StockApiService.getKlineData(
+          tsCode: ranking.stockInfo.tsCode,
+          kLineType: 'daily',
+          days: combination.consecutiveDaysConfig.days + 50, // 多获取50天确保有足够数据计算MA20
+          endDate: DateFormat('yyyyMMdd').format(combination.selectedDate), // 指定结束日期为选择日期
+        );
+        
+        // 检查数据是否足够
+        int requiredDataLength = combination.consecutiveDaysConfig.days;
+        if (combination.consecutiveDaysConfig.maType == 'ma5') {
+          requiredDataLength = combination.consecutiveDaysConfig.days + 4; // 需要额外4天计算MA5
+        } else if (combination.consecutiveDaysConfig.maType == 'ma10') {
+          requiredDataLength = combination.consecutiveDaysConfig.days + 9; // 需要额外9天计算MA10
+        } else if (combination.consecutiveDaysConfig.maType == 'ma20') {
+          requiredDataLength = combination.consecutiveDaysConfig.days + 19; // 需要额外19天计算MA20
+        }
+        
+        if (historicalData.length < requiredDataLength) {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 数据不足，需要${requiredDataLength}天，实际${historicalData.length}天，跳过');
+          }
+          continue; // 数据不足，跳过
+        }
+        
+        // 检查连续天数条件
+        bool passesConsecutiveDays = true;
+        final requiredDays = combination.consecutiveDaysConfig.days;
+        final maTypeName = combination.consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : 
+                          combination.consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20';
+        
+        if (shouldPrintDetails) {
+          print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 检查连续${requiredDays}天收盘价高于${maTypeName}');
+        }
+        
+        // 从选择日期开始往前检查连续天数
+        // historicalData[0] 是最早的数据，historicalData[historicalData.length-1] 是最新的数据（选择日期）
+        // 所以我们需要从数组末尾开始往前遍历
+        for (int i = 0; i < requiredDays; i++) {
+          final dataIndex = historicalData.length - 1 - i; // 从最新数据开始往前
+          final klineData = historicalData[dataIndex]; // 第i天的数据（从选择日期开始往前）
+          double maValue;
+          
+          // 计算对应均线值 - 使用从第dataIndex天开始的数据
+          switch (combination.consecutiveDaysConfig.maType) {
+            case 'ma5':
+              if (dataIndex + 1 >= 5) {
+                maValue = MaCalculationService.calculateMA5(historicalData.sublist(dataIndex - 4, dataIndex + 1));
+              } else {
+                maValue = 0.0;
+              }
+              break;
+            case 'ma10':
+              if (dataIndex + 1 >= 10) {
+                maValue = MaCalculationService.calculateMA10(historicalData.sublist(dataIndex - 9, dataIndex + 1));
+              } else {
+                maValue = 0.0;
+              }
+              break;
+            case 'ma20':
+              if (dataIndex + 1 >= 20) {
+                maValue = MaCalculationService.calculateMA20(historicalData.sublist(dataIndex - 19, dataIndex + 1));
+              } else {
+                maValue = 0.0;
+              }
+              break;
+            default:
+              if (dataIndex + 1 >= 20) {
+                maValue = MaCalculationService.calculateMA20(historicalData.sublist(dataIndex - 19, dataIndex + 1));
+              } else {
+                maValue = 0.0;
+              }
+          }
+          
+          final dayIndex = i + 1;
+          final dateStr = klineData.tradeDate; // 显示实际日期
+          if (shouldPrintDetails) {
+            print('    第${dayIndex}天(${dateStr}): 收盘价${klineData.close.toStringAsFixed(2)} vs ${maTypeName} ${maValue.toStringAsFixed(2)}');
+          }
+          
+          if (klineData.close <= maValue) {
+            passesConsecutiveDays = false;
+            if (shouldPrintDetails) {
+              print('    ❌ 第${dayIndex}天(${dateStr})收盘价${klineData.close.toStringAsFixed(2)} ≤ ${maTypeName} ${maValue.toStringAsFixed(2)}，不满足条件');
+            }
+            break;
+          }
+        }
+        
+        if (passesConsecutiveDays) {
+          if (shouldPrintDetails) {
+            print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过连续天数筛选');
+          }
+          filteredCandidates.add(ranking);
+        } else {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过连续天数筛选');
+          }
+        }
+      } catch (e) {
+        if (shouldPrintDetails) {
+          print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+        }
+        continue;
+      }
+    }
+    
+    return filteredCandidates;
   }
 
   // 基于股票池进行精细筛选（获取60日数据）

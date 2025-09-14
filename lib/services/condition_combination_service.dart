@@ -1,19 +1,83 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 均线偏离配置
+class MaDistanceConfig {
+  final bool enabled;
+  final double distance;
+  
+  MaDistanceConfig({
+    required this.enabled,
+    required this.distance,
+  });
+  
+  factory MaDistanceConfig.fromJson(Map<String, dynamic> json) {
+    return MaDistanceConfig(
+      enabled: json['enabled'] as bool,
+      distance: (json['distance'] as num).toDouble(),
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'distance': distance,
+    };
+  }
+}
+
+/// 连续天数配置
+class ConsecutiveDaysConfig {
+  final bool enabled;
+  final int days;
+  final String maType; // 'ma5', 'ma10', 'ma20'
+  
+  ConsecutiveDaysConfig({
+    required this.enabled,
+    required this.days,
+    required this.maType,
+  });
+  
+  factory ConsecutiveDaysConfig.fromJson(Map<String, dynamic> json) {
+    return ConsecutiveDaysConfig(
+      enabled: json['enabled'] as bool,
+      days: json['days'] as int,
+      maType: json['maType'] as String,
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'days': days,
+      'maType': maType,
+    };
+  }
+}
+
 /// 筛选条件组合数据模型
 class ConditionCombination {
   final String id;
   final String name;
   final String description;
+  
+  // 必填项
   final double amountThreshold;
   final DateTime selectedDate;
-  final double pctChgMin;
-  final double pctChgMax;
-  final double ma5Distance;
-  final double ma10Distance;
-  final double ma20Distance;
-  final int consecutiveDays;
+  
+  // 可选项
+  final bool enablePctChg;
+  final int pctChgMin; // -10 到 10 的整数
+  final int pctChgMax; // -10 到 10 的整数
+  
+  final bool enableMaDistance;
+  final MaDistanceConfig ma5Config;
+  final MaDistanceConfig ma10Config;
+  final MaDistanceConfig ma20Config;
+  
+  final bool enableConsecutiveDays;
+  final ConsecutiveDaysConfig consecutiveDaysConfig;
+  
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -23,12 +87,15 @@ class ConditionCombination {
     required this.description,
     required this.amountThreshold,
     required this.selectedDate,
+    required this.enablePctChg,
     required this.pctChgMin,
     required this.pctChgMax,
-    required this.ma5Distance,
-    required this.ma10Distance,
-    required this.ma20Distance,
-    required this.consecutiveDays,
+    required this.enableMaDistance,
+    required this.ma5Config,
+    required this.ma10Config,
+    required this.ma20Config,
+    required this.enableConsecutiveDays,
+    required this.consecutiveDaysConfig,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -41,12 +108,15 @@ class ConditionCombination {
       description: json['description'] as String,
       amountThreshold: (json['amountThreshold'] as num).toDouble(),
       selectedDate: DateTime.parse(json['selectedDate'] as String),
-      pctChgMin: (json['pctChgMin'] as num).toDouble(),
-      pctChgMax: (json['pctChgMax'] as num).toDouble(),
-      ma5Distance: (json['ma5Distance'] as num).toDouble(),
-      ma10Distance: (json['ma10Distance'] as num).toDouble(),
-      ma20Distance: (json['ma20Distance'] as num).toDouble(),
-      consecutiveDays: json['consecutiveDays'] as int,
+      enablePctChg: json['enablePctChg'] as bool? ?? false,
+      pctChgMin: json['pctChgMin'] as int? ?? -10,
+      pctChgMax: json['pctChgMax'] as int? ?? 10,
+      enableMaDistance: json['enableMaDistance'] as bool? ?? false,
+      ma5Config: MaDistanceConfig.fromJson(json['ma5Config'] as Map<String, dynamic>? ?? {'enabled': false, 'distance': 5.0}),
+      ma10Config: MaDistanceConfig.fromJson(json['ma10Config'] as Map<String, dynamic>? ?? {'enabled': false, 'distance': 5.0}),
+      ma20Config: MaDistanceConfig.fromJson(json['ma20Config'] as Map<String, dynamic>? ?? {'enabled': false, 'distance': 5.0}),
+      enableConsecutiveDays: json['enableConsecutiveDays'] as bool? ?? false,
+      consecutiveDaysConfig: ConsecutiveDaysConfig.fromJson(json['consecutiveDaysConfig'] as Map<String, dynamic>? ?? {'enabled': false, 'days': 10, 'maType': 'ma20'}),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -60,12 +130,15 @@ class ConditionCombination {
       'description': description,
       'amountThreshold': amountThreshold,
       'selectedDate': selectedDate.toIso8601String(),
+      'enablePctChg': enablePctChg,
       'pctChgMin': pctChgMin,
       'pctChgMax': pctChgMax,
-      'ma5Distance': ma5Distance,
-      'ma10Distance': ma10Distance,
-      'ma20Distance': ma20Distance,
-      'consecutiveDays': consecutiveDays,
+      'enableMaDistance': enableMaDistance,
+      'ma5Config': ma5Config.toJson(),
+      'ma10Config': ma10Config.toJson(),
+      'ma20Config': ma20Config.toJson(),
+      'enableConsecutiveDays': enableConsecutiveDays,
+      'consecutiveDaysConfig': consecutiveDaysConfig.toJson(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -78,12 +151,15 @@ class ConditionCombination {
     String? description,
     double? amountThreshold,
     DateTime? selectedDate,
-    double? pctChgMin,
-    double? pctChgMax,
-    double? ma5Distance,
-    double? ma10Distance,
-    double? ma20Distance,
-    int? consecutiveDays,
+    bool? enablePctChg,
+    int? pctChgMin,
+    int? pctChgMax,
+    bool? enableMaDistance,
+    MaDistanceConfig? ma5Config,
+    MaDistanceConfig? ma10Config,
+    MaDistanceConfig? ma20Config,
+    bool? enableConsecutiveDays,
+    ConsecutiveDaysConfig? consecutiveDaysConfig,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -93,12 +169,15 @@ class ConditionCombination {
       description: description ?? this.description,
       amountThreshold: amountThreshold ?? this.amountThreshold,
       selectedDate: selectedDate ?? this.selectedDate,
+      enablePctChg: enablePctChg ?? this.enablePctChg,
       pctChgMin: pctChgMin ?? this.pctChgMin,
       pctChgMax: pctChgMax ?? this.pctChgMax,
-      ma5Distance: ma5Distance ?? this.ma5Distance,
-      ma10Distance: ma10Distance ?? this.ma10Distance,
-      ma20Distance: ma20Distance ?? this.ma20Distance,
-      consecutiveDays: consecutiveDays ?? this.consecutiveDays,
+      enableMaDistance: enableMaDistance ?? this.enableMaDistance,
+      ma5Config: ma5Config ?? this.ma5Config,
+      ma10Config: ma10Config ?? this.ma10Config,
+      ma20Config: ma20Config ?? this.ma20Config,
+      enableConsecutiveDays: enableConsecutiveDays ?? this.enableConsecutiveDays,
+      consecutiveDaysConfig: consecutiveDaysConfig ?? this.consecutiveDaysConfig,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -106,7 +185,29 @@ class ConditionCombination {
 
   /// 获取条件组合的简要描述
   String get shortDescription {
-    return '成交额≥${amountThreshold.toStringAsFixed(0)}亿 | 涨跌幅${pctChgMin.toStringAsFixed(1)}%~${pctChgMax.toStringAsFixed(1)}% | 连续${consecutiveDays}天';
+    List<String> conditions = ['成交额≥${amountThreshold.toStringAsFixed(0)}亿'];
+    
+    if (enablePctChg) {
+      conditions.add('涨跌幅${pctChgMin}%~${pctChgMax}%');
+    }
+    
+    if (enableMaDistance) {
+      List<String> maConditions = [];
+      if (ma5Config.enabled) maConditions.add('MA5偏离${ma5Config.distance}%');
+      if (ma10Config.enabled) maConditions.add('MA10偏离${ma10Config.distance}%');
+      if (ma20Config.enabled) maConditions.add('MA20偏离${ma20Config.distance}%');
+      if (maConditions.isNotEmpty) {
+        conditions.add('均线偏离: ${maConditions.join(', ')}');
+      }
+    }
+    
+    if (enableConsecutiveDays) {
+      String maTypeName = consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : 
+                          consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20';
+      conditions.add('连续${consecutiveDaysConfig.days}天高于${maTypeName}');
+    }
+    
+    return conditions.join(' | ');
   }
   
   /// 获取条件组合的简化描述（用于下拉框显示）
@@ -243,12 +344,15 @@ class ConditionCombinationService {
     required String description,
     required double amountThreshold,
     required DateTime selectedDate,
-    required double pctChgMin,
-    required double pctChgMax,
-    required double ma5Distance,
-    required double ma10Distance,
-    required double ma20Distance,
-    required int consecutiveDays,
+    bool enablePctChg = false,
+    int pctChgMin = -10,
+    int pctChgMax = 10,
+    bool enableMaDistance = false,
+    MaDistanceConfig? ma5Config,
+    MaDistanceConfig? ma10Config,
+    MaDistanceConfig? ma20Config,
+    bool enableConsecutiveDays = false,
+    ConsecutiveDaysConfig? consecutiveDaysConfig,
   }) {
     final now = DateTime.now();
     return ConditionCombination(
@@ -257,12 +361,15 @@ class ConditionCombinationService {
       description: description,
       amountThreshold: amountThreshold,
       selectedDate: selectedDate,
+      enablePctChg: enablePctChg,
       pctChgMin: pctChgMin,
       pctChgMax: pctChgMax,
-      ma5Distance: ma5Distance,
-      ma10Distance: ma10Distance,
-      ma20Distance: ma20Distance,
-      consecutiveDays: consecutiveDays,
+      enableMaDistance: enableMaDistance,
+      ma5Config: ma5Config ?? MaDistanceConfig(enabled: false, distance: 5.0),
+      ma10Config: ma10Config ?? MaDistanceConfig(enabled: false, distance: 5.0),
+      ma20Config: ma20Config ?? MaDistanceConfig(enabled: false, distance: 5.0),
+      enableConsecutiveDays: enableConsecutiveDays,
+      consecutiveDaysConfig: consecutiveDaysConfig ?? ConsecutiveDaysConfig(enabled: false, days: 10, maType: 'ma20'),
       createdAt: now,
       updatedAt: now,
     );
