@@ -46,6 +46,22 @@ class KlineData {
     return amount / 100000; // 千元转换为亿元
   }
 
+  // 计算涨跌额（实时数据需要）
+  double get calculatedChange {
+    if (preClose > 0) {
+      return close - preClose;
+    }
+    return change;
+  }
+
+  // 计算涨跌幅（实时数据需要）
+  double get calculatedPctChg {
+    if (preClose > 0) {
+      return ((close - preClose) / preClose) * 100;
+    }
+    return pctChg;
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'ts_code': tsCode,
