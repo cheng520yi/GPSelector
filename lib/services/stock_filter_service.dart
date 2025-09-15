@@ -33,6 +33,14 @@ class StockFilterService {
 
       // 2. 判断是否使用实时K线数据
       final bool useRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);
+      final bool isTradingTime = StockApiService.isTradingTime();
+      final now = DateTime.now();
+      
+      print('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
+      print('🕐 当前是否为交易时间: $isTradingTime');
+      print('🕐 选择日期: ${DateFormat('yyyy-MM-dd').format(combination.selectedDate)}');
+      print('🕐 是否使用实时数据: $useRealTime');
+      
       if (useRealTime) {
         print('🕐 选择日期为交易日且当前时间在09:30之后，使用实时K线数据进行筛选');
       } else {
@@ -106,20 +114,45 @@ class StockFilterService {
         _printStockPool(candidates, '条件2-涨跌幅筛选');
       }
 
-      // 5. 第三轮筛选：均线偏离（可选条件）
-      if (combination.enableMaDistance) {
-        print('🔍 条件3: 均线偏离筛选');
-        candidates = await _filterByMaDistance(candidates, combination, useRealTime);
-        print('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
-        _printStockPool(candidates, '条件3-均线偏离筛选');
+      // 5. 获取历史K线数据用于均线计算（仅当需要均线筛选时）
+      Map<String, List<KlineData>> historicalKlineDataMap = {};
+      if (combination.enableMaDistance || combination.enableConsecutiveDays) {
+        print('📡 获取历史K线数据用于均线计算...');
+        final List<String> candidateTsCodes = candidates.map((ranking) => ranking.stockInfo.tsCode).toList();
+        
+        try {
+          // 使用Tushare接口获取历史K线数据（需要60天数据来计算MA20）
+          historicalKlineDataMap = await StockApiService.getBatchKlineData(
+            tsCodes: candidateTsCodes,
+            kLineType: 'daily', // 日K线
+            days: 60, // 获取60天数据
+          );
+          print('✅ 获取到 ${historicalKlineDataMap.length} 只股票的历史K线数据');
+        } catch (e) {
+          print('❌ 获取历史K线数据失败: $e');
+          // 如果获取历史数据失败，清空历史数据映射，后续筛选会跳过
+          historicalKlineDataMap.clear();
+        }
       }
 
-      // 6. 第四轮筛选：连续天数（可选条件）
-      if (combination.enableConsecutiveDays) {
+      // 6. 第三轮筛选：均线偏离（可选条件）
+      if (combination.enableMaDistance && historicalKlineDataMap.isNotEmpty) {
+        print('🔍 条件3: 均线偏离筛选');
+        candidates = await _filterByMaDistance(candidates, combination, useRealTime, historicalKlineDataMap);
+        print('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
+        _printStockPool(candidates, '条件3-均线偏离筛选');
+      } else if (combination.enableMaDistance && historicalKlineDataMap.isEmpty) {
+        print('⚠️ 跳过均线偏离筛选 - 历史数据获取失败');
+      }
+
+      // 7. 第四轮筛选：连续天数（可选条件）
+      if (combination.enableConsecutiveDays && historicalKlineDataMap.isNotEmpty) {
         print('🔍 条件4: 连续天数筛选');
-        candidates = await _filterByConsecutiveDays(candidates, combination, useRealTime);
+        candidates = await _filterByConsecutiveDays(candidates, combination, useRealTime, historicalKlineDataMap);
         print('✅ 条件4完成: ${candidates.length}只股票通过连续天数筛选');
         _printStockPool(candidates, '条件4-连续天数筛选');
+      } else if (combination.enableConsecutiveDays && historicalKlineDataMap.isEmpty) {
+        print('⚠️ 跳过连续天数筛选 - 历史数据获取失败');
       }
 
       // 7. 按成交额排序
@@ -203,6 +236,7 @@ class StockFilterService {
     List<StockRanking> candidates,
     ConditionCombination combination,
     bool useRealTime,
+    Map<String, List<KlineData>> historicalKlineDataMap,
   ) async {
     List<StockRanking> filteredCandidates = [];
     int processed = 0;
@@ -217,30 +251,12 @@ class StockFilterService {
           print('  📊 均线偏离筛选进度: $processed/${candidates.length}');
         }
         
-        // 获取历史K线数据来计算均线
-        List<KlineData> historicalData;
-        if (useRealTime) {
-          // 使用实时数据时，获取到昨天的历史数据
-          final yesterday = DateTime.now().subtract(const Duration(days: 1));
-          historicalData = await StockApiService.getKlineData(
-            tsCode: ranking.stockInfo.tsCode,
-            kLineType: 'daily',
-            days: 30, // 获取30天数据确保有足够数据计算均线
-            endDate: DateFormat('yyyyMMdd').format(yesterday), // 指定结束日期为昨天
-          );
-        } else {
-          // 使用历史数据时，获取到选择日期的历史数据
-          historicalData = await StockApiService.getKlineData(
-            tsCode: ranking.stockInfo.tsCode,
-            kLineType: 'daily',
-            days: 30, // 获取30天数据确保有足够数据计算均线
-            endDate: DateFormat('yyyyMMdd').format(combination.selectedDate), // 指定结束日期为选择日期
-          );
-        }
+        // 从已获取的历史数据中获取该股票的数据
+        final List<KlineData>? historicalData = historicalKlineDataMap[ranking.stockInfo.tsCode];
         
-        if (historicalData.length < 20) {
+        if (historicalData == null || historicalData.length < 20) {
           if (shouldPrintDetails) {
-            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 数据不足，跳过');
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，跳过');
           }
           continue; // 数据不足，跳过
         }
@@ -328,6 +344,7 @@ class StockFilterService {
     List<StockRanking> candidates,
     ConditionCombination combination,
     bool useRealTime,
+    Map<String, List<KlineData>> historicalKlineDataMap,
   ) async {
     List<StockRanking> filteredCandidates = [];
     int processed = 0;
@@ -342,26 +359,8 @@ class StockFilterService {
           print('  📊 连续天数筛选进度: $processed/${candidates.length}');
         }
         
-        // 获取历史K线数据
-        List<KlineData> historicalData;
-        if (useRealTime) {
-          // 使用实时数据时，获取到昨天的历史数据
-          final yesterday = DateTime.now().subtract(const Duration(days: 1));
-          historicalData = await StockApiService.getKlineData(
-            tsCode: ranking.stockInfo.tsCode,
-            kLineType: 'daily',
-            days: combination.consecutiveDaysConfig.days + 50, // 多获取50天确保有足够数据计算MA20
-            endDate: DateFormat('yyyyMMdd').format(yesterday), // 指定结束日期为昨天
-          );
-        } else {
-          // 使用历史数据时，获取到选择日期的历史数据
-          historicalData = await StockApiService.getKlineData(
-            tsCode: ranking.stockInfo.tsCode,
-            kLineType: 'daily',
-            days: combination.consecutiveDaysConfig.days + 50, // 多获取50天确保有足够数据计算MA20
-            endDate: DateFormat('yyyyMMdd').format(combination.selectedDate), // 指定结束日期为选择日期
-          );
-        }
+        // 从已获取的历史数据中获取该股票的数据
+        final List<KlineData>? historicalData = historicalKlineDataMap[ranking.stockInfo.tsCode];
         
         // 检查数据是否足够
         int requiredDataLength = combination.consecutiveDaysConfig.days;
@@ -373,9 +372,9 @@ class StockFilterService {
           requiredDataLength = combination.consecutiveDaysConfig.days + 19; // 需要额外19天计算MA20
         }
         
-        if (historicalData.length < requiredDataLength) {
+        if (historicalData == null || historicalData.length < requiredDataLength) {
           if (shouldPrintDetails) {
-            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 数据不足，需要${requiredDataLength}天，实际${historicalData.length}天，跳过');
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，需要${requiredDataLength}天，实际${historicalData?.length ?? 0}天，跳过');
           }
           continue; // 数据不足，跳过
         }
