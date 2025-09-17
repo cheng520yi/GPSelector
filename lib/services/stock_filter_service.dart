@@ -6,6 +6,7 @@ import 'stock_api_service.dart';
 import 'stock_pool_service.dart';
 import 'condition_combination_service.dart';
 import 'ma_calculation_service.dart';
+import 'blacklist_service.dart';
 
 class StockFilterService {
   // 预定义的成交额筛选条件
@@ -31,44 +32,57 @@ class StockFilterService {
       }
       print('✅ 从本地获取到 ${stockPool.length} 只股票');
 
-      // 2. 判断是否使用实时K线数据
-      final bool useRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);
+      // 2. 黑名单过滤（第一轮筛选）
+      print('🔍 黑名单过滤: 移除黑名单中的股票');
+      final blacklist = await BlacklistService.getBlacklist();
+      print('📋 当前黑名单包含 ${blacklist.length} 只股票');
+      
+      final filteredStockPool = stockPool.where((stock) => !blacklist.contains(stock.tsCode)).toList();
+      print('✅ 黑名单过滤完成: ${filteredStockPool.length}只股票通过黑名单筛选 (移除了${stockPool.length - filteredStockPool.length}只黑名单股票)');
+      
+      if (filteredStockPool.isEmpty) {
+        print('❌ 所有股票都在黑名单中，无法进行筛选');
+        return [];
+      }
+
+      // 3. 判断是否使用iFinD实时K线数据
+      final bool useIFinDRealTime = StockApiService.shouldUseIFinDRealTime();
       final bool isTradingTime = StockApiService.isTradingTime();
       final now = DateTime.now();
       
       print('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
       print('🕐 当前是否为交易时间: $isTradingTime');
       print('🕐 选择日期: ${DateFormat('yyyy-MM-dd').format(combination.selectedDate)}');
-      print('🕐 是否使用实时数据: $useRealTime');
+      print('🕐 是否使用iFinD实时数据: $useIFinDRealTime');
       
-      if (useRealTime) {
-        print('🕐 选择日期为交易日且当前时间在09:30之后，使用实时K线数据进行筛选');
+      if (useIFinDRealTime) {
+        print('🕐 当前时间在9:30-16:30范围内，使用iFinD实时K线数据进行筛选');
       } else {
-        print('🕐 不满足实时数据条件，使用历史K线数据进行筛选');
+        print('🕐 超出iFinD使用时间范围，使用TuShare历史K线数据进行筛选');
       }
 
-      // 3. 获取K线数据（实时或历史）
+      // 4. 获取K线数据（实时或历史）
       Map<String, KlineData> klineDataMap = {};
-      final List<String> tsCodes = stockPool.map((stock) => stock.tsCode).toList();
+      final List<String> tsCodes = filteredStockPool.map((stock) => stock.tsCode).toList();
       
-      if (useRealTime) {
-        print('📡 获取实时K线数据...');
+      if (useIFinDRealTime) {
+        print('📡 获取iFinD实时K线数据...');
         klineDataMap = await StockApiService.getBatchRealTimeKlineData(tsCodes: tsCodes);
         print('✅ 获取到 ${klineDataMap.length} 只股票的实时K线数据');
       } else {
-        print('📡 获取${combination.selectedDate}的K线数据...');
+        print('📡 获取${combination.selectedDate}的TuShare历史K线数据...');
         klineDataMap = await StockPoolService.getBatchDailyKlineData(
           tsCodes: tsCodes,
           targetDate: combination.selectedDate,
           onProgress: onProgress,
         );
-        print('✅ 获取到 ${klineDataMap.length} 只股票的K线数据');
+        print('✅ 获取到 ${klineDataMap.length} 只股票的历史K线数据');
       }
 
-      // 3. 第一轮筛选：成交额（必填条件）
+      // 5. 第一轮筛选：成交额（必填条件）
       print('🔍 条件1: 成交额筛选 (≥${combination.amountThreshold}亿元)');
       List<StockRanking> candidates = [];
-      for (StockInfo stock in stockPool) {
+      for (StockInfo stock in filteredStockPool) {
         final KlineData? klineData = klineDataMap[stock.tsCode];
         if (klineData != null && klineData.amountInYi >= combination.amountThreshold) {
           candidates.add(StockRanking(
@@ -82,7 +96,7 @@ class StockFilterService {
       print('✅ 条件1完成: ${candidates.length}只股票通过成交额筛选');
       _printStockPool(candidates, '条件1-成交额筛选');
 
-      // 4. 第二轮筛选：涨跌幅（可选条件）
+      // 6. 第二轮筛选：涨跌幅（可选条件）
       if (combination.enablePctChg) {
         print('🔍 条件2: 涨跌幅筛选 (${combination.pctChgMin}%~${combination.pctChgMax}%)');
         List<StockRanking> filteredCandidates = [];
@@ -92,7 +106,7 @@ class StockFilterService {
           processed++;
           if (processed <= 5) {
             // 使用实时数据时，使用计算出的涨跌幅
-            final pctChg = useRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
+            final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
             print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
             if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
               print('    ✅ 通过涨跌幅筛选');
@@ -102,7 +116,7 @@ class StockFilterService {
             }
           } else {
             // 对于第6个及以后的股票，只进行筛选不打印详情
-            final pctChg = useRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
+            final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
             if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
               filteredCandidates.add(ranking);
             }
@@ -114,7 +128,7 @@ class StockFilterService {
         _printStockPool(candidates, '条件2-涨跌幅筛选');
       }
 
-      // 5. 获取历史K线数据用于均线计算（仅当需要均线筛选时）
+      // 7. 获取历史K线数据用于均线计算（仅当需要均线筛选时）
       Map<String, List<KlineData>> historicalKlineDataMap = {};
       if (combination.enableMaDistance || combination.enableConsecutiveDays) {
         print('📡 获取历史K线数据用于均线计算...');
@@ -135,27 +149,27 @@ class StockFilterService {
         }
       }
 
-      // 6. 第三轮筛选：均线偏离（可选条件）
+      // 8. 第三轮筛选：均线偏离（可选条件）
       if (combination.enableMaDistance && historicalKlineDataMap.isNotEmpty) {
         print('🔍 条件3: 均线偏离筛选');
-        candidates = await _filterByMaDistance(candidates, combination, useRealTime, historicalKlineDataMap);
+        candidates = await _filterByMaDistance(candidates, combination, useIFinDRealTime, historicalKlineDataMap);
         print('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
         _printStockPool(candidates, '条件3-均线偏离筛选');
       } else if (combination.enableMaDistance && historicalKlineDataMap.isEmpty) {
         print('⚠️ 跳过均线偏离筛选 - 历史数据获取失败');
       }
 
-      // 7. 第四轮筛选：连续天数（可选条件）
+      // 9. 第四轮筛选：连续天数（可选条件）
       if (combination.enableConsecutiveDays && historicalKlineDataMap.isNotEmpty) {
         print('🔍 条件4: 连续天数筛选');
-        candidates = await _filterByConsecutiveDays(candidates, combination, useRealTime, historicalKlineDataMap);
+        candidates = await _filterByConsecutiveDays(candidates, combination, useIFinDRealTime, historicalKlineDataMap);
         print('✅ 条件4完成: ${candidates.length}只股票通过连续天数筛选');
         _printStockPool(candidates, '条件4-连续天数筛选');
       } else if (combination.enableConsecutiveDays && historicalKlineDataMap.isEmpty) {
         print('⚠️ 跳过连续天数筛选 - 历史数据获取失败');
       }
 
-      // 7. 按成交额排序
+      // 10. 按成交额排序
       print('🔄 按成交额排序...');
       final sortedCandidates = StockRanking.sortByAmount(candidates);
       print('✅ 排序完成，最终结果: ${sortedCandidates.length}只股票');
@@ -235,7 +249,7 @@ class StockFilterService {
   static Future<List<StockRanking>> _filterByMaDistance(
     List<StockRanking> candidates,
     ConditionCombination combination,
-    bool useRealTime,
+    bool useIFinDRealTime,
     Map<String, List<KlineData>> historicalKlineDataMap,
   ) async {
     List<StockRanking> filteredCandidates = [];
@@ -268,7 +282,7 @@ class StockFilterService {
         if (combination.ma5Config.enabled) {
           final ma5 = MaCalculationService.calculateMA5(historicalData);
           // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useRealTime ? ranking.klineData.close : ranking.klineData.close;
+          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
           final ma5Distance = MaCalculationService.calculateMaDistance(
             currentPrice,
             ma5,
@@ -286,7 +300,7 @@ class StockFilterService {
         if (combination.ma10Config.enabled && passesMaDistance) {
           final ma10 = MaCalculationService.calculateMA10(historicalData);
           // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useRealTime ? ranking.klineData.close : ranking.klineData.close;
+          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
           final ma10Distance = MaCalculationService.calculateMaDistance(
             currentPrice,
             ma10,
@@ -304,7 +318,7 @@ class StockFilterService {
         if (combination.ma20Config.enabled && passesMaDistance) {
           final ma20 = MaCalculationService.calculateMA20(historicalData);
           // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useRealTime ? ranking.klineData.close : ranking.klineData.close;
+          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
           final ma20Distance = MaCalculationService.calculateMaDistance(
             currentPrice,
             ma20,
@@ -343,7 +357,7 @@ class StockFilterService {
   static Future<List<StockRanking>> _filterByConsecutiveDays(
     List<StockRanking> candidates,
     ConditionCombination combination,
-    bool useRealTime,
+    bool useIFinDRealTime,
     Map<String, List<KlineData>> historicalKlineDataMap,
   ) async {
     List<StockRanking> filteredCandidates = [];
@@ -399,7 +413,7 @@ class StockFilterService {
           
           // 如果是使用实时数据且检查的是最新一天，使用实时价格
           double currentPrice;
-          if (useRealTime && i == 0) {
+          if (useIFinDRealTime && i == 0) {
             currentPrice = ranking.klineData.close; // 使用实时价格
           } else {
             currentPrice = klineData.close; // 使用历史价格
@@ -437,7 +451,7 @@ class StockFilterService {
           }
           
           final dayIndex = i + 1;
-          final dateStr = useRealTime && i == 0 ? '实时' : klineData.tradeDate; // 显示实际日期或实时
+          final dateStr = useIFinDRealTime && i == 0 ? '实时' : klineData.tradeDate; // 显示实际日期或实时
           if (shouldPrintDetails) {
             print('    第${dayIndex}天(${dateStr}): 收盘价${currentPrice.toStringAsFixed(2)} vs ${maTypeName} ${maValue.toStringAsFixed(2)}');
           }

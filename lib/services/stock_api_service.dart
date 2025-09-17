@@ -13,7 +13,133 @@ class StockApiService {
   
   // iFinD实时行情接口配置
   static const String iFinDBaseUrl = 'https://quantapi.51ifind.com/api/v1/real_time_quotation';
-  static const String iFinDAccessToken = '4b86a69ffb42a2b0129e37cb3e762537f48dcf88.signs_ODA2MTg0ODg1';
+  
+  // TODO: 暂时注释掉动态token刷新相关配置，使用固定token
+  // static const String iFinDTokenRefreshUrl = 'https://quantapi.51ifind.com/api/v1/get_access_token';
+  // static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTA5LTEwIDE2OjA3OjQ5In0=.eyJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyIjp7ImFjY291bnQiOiJzaGl5b25nMTI5NyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEwLTEwIDE2OjA3OjIwIiwic2Vzc3Npb24iOiIyOWQwNjZkOTM4MzNiMTA3MTlkZDAxNmNlMTYxZjIxNSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc1NzQ5MTY2ODk4MyIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.87A28522BEA4446B318DCE02DC7DDA5D9A0AE4E7E4CB2EC45EA7F3A82F13903F';
+  
+  // 固定的access_token（不再动态刷新）
+  static const String _currentAccessToken = '1e2121f953472942dedfd7513856a000b8764061.signs_ODA2MTg0ODg1';
+  
+  // TODO: 暂时注释掉token过期时间管理
+  // static DateTime? _tokenExpireTime;
+
+  // 获取固定的access_token（不再使用动态刷新）
+  static String getCurrentAccessToken() {
+    return _currentAccessToken;
+  }
+  
+  // TODO: 暂时注释掉动态token刷新相关函数，保留代码以便将来恢复
+  /*
+  // 通过refresh_token获取新的access_token
+  static Future<String?> refreshAccessToken() async {
+    try {
+      print('🔄 开始刷新iFinD access_token...');
+      
+      final response = await http.post(
+        Uri.parse(iFinDTokenRefreshUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'refresh_token': iFinDRefreshToken,
+        },
+      );
+      
+      print('🔍 Token刷新HTTP响应状态码: ${response.statusCode}');
+      print('🔍 Token刷新HTTP响应体: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['errorcode'] == 0) {
+          final data = responseData['data'];
+          if (data != null) {
+            final String newAccessToken = data['access_token'] ?? '';
+            final String expiredTimeStr = data['expired_time'] ?? '';
+            
+            if (newAccessToken.isNotEmpty) {
+              _currentAccessToken = newAccessToken;
+              
+              // 解析过期时间
+              try {
+                _tokenExpireTime = DateTime.parse(expiredTimeStr);
+                print('✅ Token刷新成功，新token: ${newAccessToken.substring(0, 20)}...');
+                print('✅ Token过期时间: $_tokenExpireTime');
+                return newAccessToken;
+              } catch (e) {
+                print('⚠️ 解析token过期时间失败: $e');
+                // 即使解析过期时间失败，也使用新token
+                return newAccessToken;
+              }
+            } else {
+              print('❌ Token刷新响应中access_token为空');
+              return null;
+            }
+          } else {
+            print('❌ Token刷新响应中data为空');
+            return null;
+          }
+        } else {
+          print('❌ Token刷新API返回错误: ${responseData['errorcode']} - ${responseData['errmsg']}');
+          return null;
+        }
+      } else {
+        print('❌ Token刷新HTTP请求失败: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Token刷新异常: $e');
+      return null;
+    }
+  }
+  
+  // 检查token是否需要刷新
+  static bool isTokenExpired() {
+    if (_tokenExpireTime == null) {
+      // 如果没有过期时间信息，假设token可能已过期，需要刷新
+      return true;
+    }
+    
+    // 提前5分钟刷新token，避免在关键时刻过期
+    final now = DateTime.now();
+    final refreshTime = _tokenExpireTime!.subtract(const Duration(minutes: 5));
+    
+    return now.isAfter(refreshTime);
+  }
+  
+  // 获取当前有效的access_token，如果过期则自动刷新
+  static Future<String> getCurrentAccessToken() async {
+    if (isTokenExpired()) {
+      print('🔄 Token已过期或即将过期，开始刷新...');
+      final newToken = await refreshAccessToken();
+      if (newToken != null) {
+        return newToken;
+      } else {
+        print('⚠️ Token刷新失败，使用当前token');
+        return _currentAccessToken;
+      }
+    }
+    
+    return _currentAccessToken;
+  }
+  
+  // 测试token刷新功能
+  static Future<void> testTokenRefresh() async {
+    print('🧪 开始测试iFinD token刷新功能...');
+    
+    try {
+      final newToken = await refreshAccessToken();
+      if (newToken != null) {
+        print('✅ Token刷新测试成功！');
+        print('✅ 新token: ${newToken.substring(0, 30)}...');
+        print('✅ Token过期时间: $_tokenExpireTime');
+      } else {
+        print('❌ Token刷新测试失败！');
+      }
+    } catch (e) {
+      print('❌ Token刷新测试异常: $e');
+    }
+  }
+  */
 
   // 判断当前时间是否为交易日且在交易时间内（9:30-15:00）
   static bool isTradingTime() {
@@ -32,6 +158,18 @@ class StockApiService {
     
     // 9:30 = 930, 15:00 = 1500
     return currentTime >= 930 && currentTime <= 1500;
+  }
+
+  // 判断是否应该使用iFinD实时接口（当天且在9:30-16:30时间内）
+  static bool shouldUseIFinDRealTime() {
+    final now = DateTime.now();
+    final hour = now.hour;
+    final minute = now.minute;
+    final currentTime = hour * 100 + minute;
+    
+    // 使用iFinD的时间范围：9:30-16:30
+    // 9:30 = 930, 16:30 = 1630
+    return currentTime >= 930 && currentTime <= 1630;
   }
 
   // 判断是否应该使用实时K线数据
@@ -196,11 +334,14 @@ class StockApiService {
       print('🔍 iFinD请求URL: $iFinDBaseUrl');
       print('🔍 iFinD请求数据: ${json.encode(requestData)}');
 
+      // 获取固定的access_token
+      final currentToken = getCurrentAccessToken();
+      
       final response = await http.post(
         Uri.parse(iFinDBaseUrl),
         headers: {
           'Content-Type': 'application/json',
-          'access_token': iFinDAccessToken,
+          'access_token': currentToken,
         },
         body: json.encode(requestData),
       );
@@ -287,16 +428,21 @@ class StockApiService {
   }) async {
     print('📊 开始批量获取 ${tsCodes.length} 只股票的实时K线数据');
     
-    // 首先尝试使用iFinD接口
-    print('🚀 优先使用iFinD接口获取实时数据...');
-    Map<String, KlineData> iFinDResult = await getIFinDRealTimeData(tsCodes: tsCodes);
-    
-    if (iFinDResult.isNotEmpty) {
-      print('✅ iFinD接口成功获取 ${iFinDResult.length} 只股票的实时数据');
-      return iFinDResult;
+    // 检查是否应该使用iFinD实时接口
+    if (shouldUseIFinDRealTime()) {
+      print('🚀 当前时间适合使用iFinD接口获取实时数据...');
+      Map<String, KlineData> iFinDResult = await getIFinDRealTimeData(tsCodes: tsCodes);
+      
+      if (iFinDResult.isNotEmpty) {
+        print('✅ iFinD接口成功获取 ${iFinDResult.length} 只股票的实时数据');
+        return iFinDResult;
+      } else {
+        print('❌ iFinD接口获取失败，查询失败');
+        return {}; // 直接返回空结果，不再回退到TuShare
+      }
     }
     
-    print('⚠️ iFinD接口获取失败，回退到Tushare接口...');
+    print('⚠️ 当前时间不适合使用iFinD接口，直接使用Tushare历史数据接口...');
     
     // 如果iFinD失败，回退到Tushare接口
     Map<String, KlineData> result = {};
