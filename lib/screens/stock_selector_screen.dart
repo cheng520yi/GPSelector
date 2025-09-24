@@ -9,8 +9,10 @@ import '../services/ma_calculation_service.dart';
 import '../services/blacklist_service.dart';
 import '../services/condition_combination_service.dart';
 import '../services/stock_filter_service.dart';
+import '../services/log_service.dart';
 import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
+import 'log_viewer_screen.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
@@ -190,6 +192,17 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
               }
             },
             tooltip: '条件组合管理',
+          ),
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const LogViewerScreen(),
+                ),
+              );
+            },
+            tooltip: '查看日志',
           ),
           IconButton(
             icon: const Icon(Icons.settings),

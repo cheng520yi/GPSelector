@@ -7,6 +7,8 @@ import 'stock_pool_service.dart';
 import 'condition_combination_service.dart';
 import 'ma_calculation_service.dart';
 import 'blacklist_service.dart';
+import 'log_service.dart';
+import 'console_capture_service.dart';
 
 class StockFilterService {
   // 预定义的成交额筛选条件
@@ -19,46 +21,71 @@ class StockFilterService {
     Function(int current, int total)? onProgress,
   }) async {
     try {
+      final logService = LogService.instance;
+      
+      logService.info('FILTER', '开始使用条件组合筛选股票', data: {
+        'combinationName': combination.name,
+        'combinationId': combination.id,
+        'shortDescription': combination.shortDescription,
+      });
+      
       print('🎯 开始使用条件组合筛选股票: ${combination.name}');
       print('📋 筛选条件: ${combination.shortDescription}');
       
+      // 捕获控制台输出
+      ConsoleCaptureService.instance.capturePrint('🎯 开始使用条件组合筛选股票: ${combination.name}');
+      ConsoleCaptureService.instance.capturePrint('📋 筛选条件: ${combination.shortDescription}');
+      
       // 1. 获取本地股票池
       print('📊 获取本地股票池...');
+      ConsoleCaptureService.instance.capturePrint('📊 获取本地股票池...');
       final localData = await StockPoolService.loadStockPoolFromLocal();
       final List<StockInfo> stockPool = localData['stockPool'] as List<StockInfo>;
       if (stockPool.isEmpty) {
         print('❌ 本地股票池为空，请先配置股票池');
+        ConsoleCaptureService.instance.capturePrint('❌ 本地股票池为空，请先配置股票池');
         return [];
       }
       print('✅ 从本地获取到 ${stockPool.length} 只股票');
+      ConsoleCaptureService.instance.capturePrint('✅ 从本地获取到 ${stockPool.length} 只股票');
 
       // 2. 黑名单过滤（第一轮筛选）
       print('🔍 黑名单过滤: 移除黑名单中的股票');
+      ConsoleCaptureService.instance.capturePrint('🔍 黑名单过滤: 移除黑名单中的股票');
       final blacklist = await BlacklistService.getBlacklist();
       print('📋 当前黑名单包含 ${blacklist.length} 只股票');
+      ConsoleCaptureService.instance.capturePrint('📋 当前黑名单包含 ${blacklist.length} 只股票');
       
       final filteredStockPool = stockPool.where((stock) => !blacklist.contains(stock.tsCode)).toList();
       print('✅ 黑名单过滤完成: ${filteredStockPool.length}只股票通过黑名单筛选 (移除了${stockPool.length - filteredStockPool.length}只黑名单股票)');
+      ConsoleCaptureService.instance.capturePrint('✅ 黑名单过滤完成: ${filteredStockPool.length}只股票通过黑名单筛选 (移除了${stockPool.length - filteredStockPool.length}只黑名单股票)');
       
       if (filteredStockPool.isEmpty) {
         print('❌ 所有股票都在黑名单中，无法进行筛选');
+        ConsoleCaptureService.instance.capturePrint('❌ 所有股票都在黑名单中，无法进行筛选');
         return [];
       }
 
       // 3. 判断是否使用iFinD实时K线数据
-      final bool useIFinDRealTime = StockApiService.shouldUseIFinDRealTime();
+      final bool useIFinDRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);
       final bool isTradingTime = StockApiService.isTradingTime();
       final now = DateTime.now();
       
       print('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
+      ConsoleCaptureService.instance.capturePrint('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
       print('🕐 当前是否为交易时间: $isTradingTime');
+      ConsoleCaptureService.instance.capturePrint('🕐 当前是否为交易时间: $isTradingTime');
       print('🕐 选择日期: ${DateFormat('yyyy-MM-dd').format(combination.selectedDate)}');
+      ConsoleCaptureService.instance.capturePrint('🕐 选择日期: ${DateFormat('yyyy-MM-dd').format(combination.selectedDate)}');
       print('🕐 是否使用iFinD实时数据: $useIFinDRealTime');
+      ConsoleCaptureService.instance.capturePrint('🕐 是否使用iFinD实时数据: $useIFinDRealTime');
       
       if (useIFinDRealTime) {
         print('🕐 当前时间在9:30-16:30范围内，使用iFinD实时K线数据进行筛选');
+        ConsoleCaptureService.instance.capturePrint('🕐 当前时间在9:30-16:30范围内，使用iFinD实时K线数据进行筛选');
       } else {
         print('🕐 超出iFinD使用时间范围，使用TuShare历史K线数据进行筛选');
+        ConsoleCaptureService.instance.capturePrint('🕐 超出iFinD使用时间范围，使用TuShare历史K线数据进行筛选');
       }
 
       // 4. 获取K线数据（实时或历史）
@@ -66,39 +93,80 @@ class StockFilterService {
       final List<String> tsCodes = filteredStockPool.map((stock) => stock.tsCode).toList();
       
       if (useIFinDRealTime) {
-        print('📡 获取iFinD实时K线数据...');
-        klineDataMap = await StockApiService.getBatchRealTimeKlineData(tsCodes: tsCodes);
-        print('✅ 获取到 ${klineDataMap.length} 只股票的实时K线数据');
+        print('📡 获取K线数据（根据时间和日期选择实时或历史接口）...');
+        ConsoleCaptureService.instance.capturePrint('📡 获取K线数据（根据时间和日期选择实时或历史接口）...');
+        klineDataMap = await StockApiService.getBatchRealTimeKlineData(
+          tsCodes: tsCodes,
+          selectedDate: combination.selectedDate,
+        );
+        print('✅ 获取到 ${klineDataMap.length} 只股票的K线数据');
+        ConsoleCaptureService.instance.capturePrint('✅ 获取到 ${klineDataMap.length} 只股票的K线数据');
       } else {
         print('📡 获取${combination.selectedDate}的TuShare历史K线数据...');
+        ConsoleCaptureService.instance.capturePrint('📡 获取${combination.selectedDate}的TuShare历史K线数据...');
         klineDataMap = await StockPoolService.getBatchDailyKlineData(
           tsCodes: tsCodes,
           targetDate: combination.selectedDate,
           onProgress: onProgress,
         );
         print('✅ 获取到 ${klineDataMap.length} 只股票的历史K线数据');
+        ConsoleCaptureService.instance.capturePrint('✅ 获取到 ${klineDataMap.length} 只股票的历史K线数据');
       }
 
       // 5. 第一轮筛选：成交额（必填条件）
-      print('🔍 条件1: 成交额筛选 (≥${combination.amountThreshold}亿元)');
+      String amountFilterDesc;
+      if (combination.amountRangeConfig.enabled) {
+        if (combination.amountRangeConfig.maxAmount >= 1000) {
+          amountFilterDesc = '成交额≥${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}亿元';
+        } else {
+          amountFilterDesc = '成交额${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}~${combination.amountRangeConfig.maxAmount.toStringAsFixed(0)}亿元';
+        }
+      } else {
+        amountFilterDesc = '成交额≥${combination.amountThreshold}亿元';
+      }
+      print('🔍 条件1: 成交额筛选 ($amountFilterDesc)');
+      ConsoleCaptureService.instance.capturePrint('🔍 条件1: 成交额筛选 ($amountFilterDesc)');
+      
       List<StockRanking> candidates = [];
       for (StockInfo stock in filteredStockPool) {
         final KlineData? klineData = klineDataMap[stock.tsCode];
-        if (klineData != null && klineData.amountInYi >= combination.amountThreshold) {
-          candidates.add(StockRanking(
-            stockInfo: stock,
-            klineData: klineData,
-            amountInYi: klineData.amountInYi,
-            rank: 0,
-          ));
+        if (klineData != null) {
+          bool passesAmountFilter;
+          
+          if (combination.amountRangeConfig.enabled) {
+            // 使用成交额范围筛选
+            final amount = klineData.amountInYi;
+            if (combination.amountRangeConfig.maxAmount >= 1000) {
+              // 无上限，只检查最小值
+              passesAmountFilter = amount >= combination.amountRangeConfig.minAmount;
+            } else {
+              // 有上限，检查范围
+              passesAmountFilter = amount >= combination.amountRangeConfig.minAmount && 
+                                   amount <= combination.amountRangeConfig.maxAmount;
+            }
+          } else {
+            // 使用传统的阈值筛选
+            passesAmountFilter = klineData.amountInYi >= combination.amountThreshold;
+          }
+          
+          if (passesAmountFilter) {
+            candidates.add(StockRanking(
+              stockInfo: stock,
+              klineData: klineData,
+              amountInYi: klineData.amountInYi,
+              rank: 0,
+            ));
+          }
         }
       }
       print('✅ 条件1完成: ${candidates.length}只股票通过成交额筛选');
+      ConsoleCaptureService.instance.capturePrint('✅ 条件1完成: ${candidates.length}只股票通过成交额筛选');
       _printStockPool(candidates, '条件1-成交额筛选');
 
       // 6. 第二轮筛选：涨跌幅（可选条件）
       if (combination.enablePctChg) {
         print('🔍 条件2: 涨跌幅筛选 (${combination.pctChgMin}%~${combination.pctChgMax}%)');
+        ConsoleCaptureService.instance.capturePrint('🔍 条件2: 涨跌幅筛选 (${combination.pctChgMin}%~${combination.pctChgMax}%)');
         List<StockRanking> filteredCandidates = [];
         int processed = 0;
         
@@ -108,11 +176,14 @@ class StockFilterService {
             // 使用实时数据时，使用计算出的涨跌幅
             final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
             print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
+            ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
             if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
               print('    ✅ 通过涨跌幅筛选');
+              ConsoleCaptureService.instance.capturePrint('    ✅ 通过涨跌幅筛选');
               filteredCandidates.add(ranking);
             } else {
               print('    ❌ 未通过涨跌幅筛选');
+              ConsoleCaptureService.instance.capturePrint('    ❌ 未通过涨跌幅筛选');
             }
           } else {
             // 对于第6个及以后的股票，只进行筛选不打印详情
@@ -125,6 +196,7 @@ class StockFilterService {
         
         candidates = filteredCandidates;
         print('✅ 条件2完成: ${candidates.length}只股票通过涨跌幅筛选');
+        ConsoleCaptureService.instance.capturePrint('✅ 条件2完成: ${candidates.length}只股票通过涨跌幅筛选');
         _printStockPool(candidates, '条件2-涨跌幅筛选');
       }
 
@@ -132,6 +204,7 @@ class StockFilterService {
       Map<String, List<KlineData>> historicalKlineDataMap = {};
       if (combination.enableMaDistance || combination.enableConsecutiveDays) {
         print('📡 获取历史K线数据用于均线计算...');
+        ConsoleCaptureService.instance.capturePrint('📡 获取历史K线数据用于均线计算...');
         final List<String> candidateTsCodes = candidates.map((ranking) => ranking.stockInfo.tsCode).toList();
         
         try {
@@ -144,6 +217,7 @@ class StockFilterService {
           print('✅ 获取到 ${historicalKlineDataMap.length} 只股票的历史K线数据');
         } catch (e) {
           print('❌ 获取历史K线数据失败: $e');
+          ConsoleCaptureService.instance.capturePrint('❌ 获取历史K线数据失败: $e');
           // 如果获取历史数据失败，清空历史数据映射，后续筛选会跳过
           historicalKlineDataMap.clear();
         }
@@ -152,33 +226,42 @@ class StockFilterService {
       // 8. 第三轮筛选：均线偏离（可选条件）
       if (combination.enableMaDistance && historicalKlineDataMap.isNotEmpty) {
         print('🔍 条件3: 均线偏离筛选');
+        ConsoleCaptureService.instance.capturePrint('🔍 条件3: 均线偏离筛选');
         candidates = await _filterByMaDistance(candidates, combination, useIFinDRealTime, historicalKlineDataMap);
         print('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
+        ConsoleCaptureService.instance.capturePrint('✅ 条件3完成: ${candidates.length}只股票通过均线偏离筛选');
         _printStockPool(candidates, '条件3-均线偏离筛选');
       } else if (combination.enableMaDistance && historicalKlineDataMap.isEmpty) {
         print('⚠️ 跳过均线偏离筛选 - 历史数据获取失败');
+        ConsoleCaptureService.instance.capturePrint('⚠️ 跳过均线偏离筛选 - 历史数据获取失败');
       }
 
       // 9. 第四轮筛选：连续天数（可选条件）
       if (combination.enableConsecutiveDays && historicalKlineDataMap.isNotEmpty) {
         print('🔍 条件4: 连续天数筛选');
+        ConsoleCaptureService.instance.capturePrint('🔍 条件4: 连续天数筛选');
         candidates = await _filterByConsecutiveDays(candidates, combination, useIFinDRealTime, historicalKlineDataMap);
         print('✅ 条件4完成: ${candidates.length}只股票通过连续天数筛选');
+        ConsoleCaptureService.instance.capturePrint('✅ 条件4完成: ${candidates.length}只股票通过连续天数筛选');
         _printStockPool(candidates, '条件4-连续天数筛选');
       } else if (combination.enableConsecutiveDays && historicalKlineDataMap.isEmpty) {
         print('⚠️ 跳过连续天数筛选 - 历史数据获取失败');
+        ConsoleCaptureService.instance.capturePrint('⚠️ 跳过连续天数筛选 - 历史数据获取失败');
       }
 
       // 10. 按成交额排序
       print('🔄 按成交额排序...');
+      ConsoleCaptureService.instance.capturePrint('🔄 按成交额排序...');
       final sortedCandidates = StockRanking.sortByAmount(candidates);
       print('✅ 排序完成，最终结果: ${sortedCandidates.length}只股票');
+      ConsoleCaptureService.instance.capturePrint('✅ 排序完成，最终结果: ${sortedCandidates.length}只股票');
       _printStockPool(sortedCandidates, '最终结果');
 
       return sortedCandidates;
       
     } catch (e) {
       print('❌ 条件组合筛选失败: $e');
+      ConsoleCaptureService.instance.capturePrint('❌ 条件组合筛选失败: $e');
       return [];
     }
   }
@@ -228,10 +311,12 @@ class StockFilterService {
   static void _printStockPool(List<StockRanking> candidates, String stage) {
     if (candidates.isEmpty) {
       print('📋 $stage: 无符合条件的股票');
+      ConsoleCaptureService.instance.capturePrint('📋 $stage: 无符合条件的股票');
       return;
     }
     
     print('📋 $stage: 共${candidates.length}只股票');
+    ConsoleCaptureService.instance.capturePrint('📋 $stage: 共${candidates.length}只股票');
     // 只打印前5只股票
     final printCount = candidates.length > 5 ? 5 : candidates.length;
     for (int i = 0; i < printCount; i++) {
@@ -239,9 +324,11 @@ class StockFilterService {
       // 判断是否为实时数据，使用相应的涨跌幅
       final pctChg = ranking.klineData.calculatedPctChg != 0.0 ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
       print('  ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}) - 当前价: ${ranking.klineData.close.toStringAsFixed(2)}元, 成交额: ${ranking.amountInYi.toStringAsFixed(2)}亿元, 涨跌幅: ${pctChg.toStringAsFixed(2)}%');
+      ConsoleCaptureService.instance.capturePrint('  ${i + 1}. ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}) - 当前价: ${ranking.klineData.close.toStringAsFixed(2)}元, 成交额: ${ranking.amountInYi.toStringAsFixed(2)}亿元, 涨跌幅: ${pctChg.toStringAsFixed(2)}%');
     }
     if (candidates.length > 5) {
       print('  ... 还有${candidates.length - 5}只股票');
+      ConsoleCaptureService.instance.capturePrint('  ... 还有${candidates.length - 5}只股票');
     }
   }
 
@@ -263,6 +350,7 @@ class StockFilterService {
       try {
         if (processed % 10 == 0) {
           print('  📊 均线偏离筛选进度: $processed/${candidates.length}');
+          ConsoleCaptureService.instance.capturePrint('  📊 均线偏离筛选进度: $processed/${candidates.length}');
         }
         
         // 从已获取的历史数据中获取该股票的数据
@@ -271,6 +359,7 @@ class StockFilterService {
         if (historicalData == null || historicalData.length < 20) {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，跳过');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，跳过');
           }
           continue; // 数据不足，跳过
         }

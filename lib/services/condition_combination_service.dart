@@ -55,6 +55,35 @@ class ConsecutiveDaysConfig {
   }
 }
 
+/// 成交额范围配置
+class AmountRangeConfig {
+  final bool enabled;
+  final double minAmount; // 最小成交额（亿元）
+  final double maxAmount; // 最大成交额（亿元），null表示无上限
+  
+  AmountRangeConfig({
+    required this.enabled,
+    required this.minAmount,
+    required this.maxAmount,
+  });
+  
+  factory AmountRangeConfig.fromJson(Map<String, dynamic> json) {
+    return AmountRangeConfig(
+      enabled: json['enabled'] as bool,
+      minAmount: (json['minAmount'] ?? 0.0).toDouble(),
+      maxAmount: (json['maxAmount'] ?? 1000.0).toDouble(),
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'minAmount': minAmount,
+      'maxAmount': maxAmount,
+    };
+  }
+}
+
 /// 筛选条件组合数据模型
 class ConditionCombination {
   final String id;
@@ -64,6 +93,9 @@ class ConditionCombination {
   // 必填项
   final double amountThreshold;
   final DateTime selectedDate;
+  
+  // 成交额范围配置
+  final AmountRangeConfig amountRangeConfig;
   
   // 可选项
   final bool enablePctChg;
@@ -87,6 +119,7 @@ class ConditionCombination {
     required this.description,
     required this.amountThreshold,
     required this.selectedDate,
+    required this.amountRangeConfig,
     required this.enablePctChg,
     required this.pctChgMin,
     required this.pctChgMax,
@@ -108,6 +141,7 @@ class ConditionCombination {
       description: json['description'] as String,
       amountThreshold: (json['amountThreshold'] as num).toDouble(),
       selectedDate: DateTime.parse(json['selectedDate'] as String),
+      amountRangeConfig: AmountRangeConfig.fromJson(json['amountRangeConfig'] as Map<String, dynamic>? ?? {'enabled': false, 'minAmount': 0.0, 'maxAmount': 1000.0}),
       enablePctChg: json['enablePctChg'] as bool? ?? false,
       pctChgMin: json['pctChgMin'] as int? ?? -10,
       pctChgMax: json['pctChgMax'] as int? ?? 10,
@@ -130,6 +164,7 @@ class ConditionCombination {
       'description': description,
       'amountThreshold': amountThreshold,
       'selectedDate': selectedDate.toIso8601String(),
+      'amountRangeConfig': amountRangeConfig.toJson(),
       'enablePctChg': enablePctChg,
       'pctChgMin': pctChgMin,
       'pctChgMax': pctChgMax,
@@ -151,6 +186,7 @@ class ConditionCombination {
     String? description,
     double? amountThreshold,
     DateTime? selectedDate,
+    AmountRangeConfig? amountRangeConfig,
     bool? enablePctChg,
     int? pctChgMin,
     int? pctChgMax,
@@ -169,6 +205,7 @@ class ConditionCombination {
       description: description ?? this.description,
       amountThreshold: amountThreshold ?? this.amountThreshold,
       selectedDate: selectedDate ?? this.selectedDate,
+      amountRangeConfig: amountRangeConfig ?? this.amountRangeConfig,
       enablePctChg: enablePctChg ?? this.enablePctChg,
       pctChgMin: pctChgMin ?? this.pctChgMin,
       pctChgMax: pctChgMax ?? this.pctChgMax,
@@ -185,7 +222,18 @@ class ConditionCombination {
 
   /// 获取条件组合的简要描述
   String get shortDescription {
-    List<String> conditions = ['成交额≥${amountThreshold.toStringAsFixed(0)}亿'];
+    List<String> conditions = [];
+    
+    // 基础成交额条件
+    if (amountRangeConfig.enabled) {
+      if (amountRangeConfig.maxAmount >= 1000) {
+        conditions.add('成交额${amountRangeConfig.minAmount.toStringAsFixed(0)}亿以上');
+      } else {
+        conditions.add('成交额${amountRangeConfig.minAmount.toStringAsFixed(0)}~${amountRangeConfig.maxAmount.toStringAsFixed(0)}亿');
+      }
+    } else {
+      conditions.add('成交额≥${amountThreshold.toStringAsFixed(0)}亿');
+    }
     
     if (enablePctChg) {
       conditions.add('涨跌幅${pctChgMin}%~${pctChgMax}%');
@@ -344,6 +392,7 @@ class ConditionCombinationService {
     required String description,
     required double amountThreshold,
     required DateTime selectedDate,
+    AmountRangeConfig? amountRangeConfig,
     bool enablePctChg = false,
     int pctChgMin = -10,
     int pctChgMax = 10,
@@ -361,6 +410,7 @@ class ConditionCombinationService {
       description: description,
       amountThreshold: amountThreshold,
       selectedDate: selectedDate,
+      amountRangeConfig: amountRangeConfig ?? AmountRangeConfig(enabled: false, minAmount: 0.0, maxAmount: 1000.0),
       enablePctChg: enablePctChg,
       pctChgMin: pctChgMin,
       pctChgMax: pctChgMax,

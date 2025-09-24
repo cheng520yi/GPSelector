@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import 'batch_optimizer.dart';
+import 'log_service.dart';
+import 'console_capture_service.dart';
 
 class StockApiService {
   static const String baseUrl = 'http://api.tushare.pro';
@@ -19,7 +21,7 @@ class StockApiService {
   // static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTA5LTEwIDE2OjA3OjQ5In0=.eyJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyIjp7ImFjY291bnQiOiJzaGl5b25nMTI5NyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEwLTEwIDE2OjA3OjIwIiwic2Vzc3Npb24iOiIyOWQwNjZkOTM4MzNiMTA3MTlkZDAxNmNlMTYxZjIxNSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc1NzQ5MTY2ODk4MyIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.87A28522BEA4446B318DCE02DC7DDA5D9A0AE4E7E4CB2EC45EA7F3A82F13903F';
   
   // 固定的access_token（不再动态刷新）
-  static const String _currentAccessToken = '1e2121f953472942dedfd7513856a000b8764061.signs_ODA2MTg0ODg1';
+  static const String _currentAccessToken = '4dbd083c01b3b17f96468f77da864bc765f1d2be.signs_ODA2MTg0ODg1';
   
   // TODO: 暂时注释掉token过期时间管理
   // static DateTime? _tokenExpireTime;
@@ -160,20 +162,8 @@ class StockApiService {
     return currentTime >= 930 && currentTime <= 1500;
   }
 
-  // 判断是否应该使用iFinD实时接口（当天且在9:30-16:30时间内）
-  static bool shouldUseIFinDRealTime() {
-    final now = DateTime.now();
-    final hour = now.hour;
-    final minute = now.minute;
-    final currentTime = hour * 100 + minute;
-    
-    // 使用iFinD的时间范围：9:30-16:30
-    // 9:30 = 930, 16:30 = 1630
-    return currentTime >= 930 && currentTime <= 1630;
-  }
-
-  // 判断是否应该使用实时K线数据
-  // 条件：1. 选择的日期是交易日 2. 当前时间在选择日期当天的09:30之后
+  /// 判断是否应该使用实时数据接口（iFinD或TuShare rt_k）
+  /// 只在交易日9:30-16:30使用实时接口，其他时间使用历史接口
   static bool shouldUseRealTimeData(DateTime selectedDate) {
     final now = DateTime.now();
     
@@ -190,13 +180,60 @@ class StockApiService {
       return false;
     }
     
-    // 检查当前时间是否在09:30之后
+    // 检查当前时间是否在交易日9:30-16:30之间
     final hour = now.hour;
     final minute = now.minute;
     final currentTime = hour * 100 + minute;
     
-    // 9:30 = 930
-    return currentTime >= 930;
+    // 交易日时间范围：9:30-16:30
+    // 9:30 = 930, 16:30 = 1630
+    return currentTime >= 930 && currentTime <= 1630;
+  }
+
+  /// 判断是否应该使用iFinD实时接口（默认选择）
+  /// 如果iFinD不可用，则使用TuShare rt_k接口作为备选
+  static bool shouldUseIFinDRealTime() {
+    // 默认使用iFinD接口
+    return true;
+  }
+
+  /// 获取应该查询的日期
+  /// 如果当前时间在交易日9:30之前，返回前一个交易日
+  /// 否则返回选择的日期
+  static DateTime getQueryDate(DateTime selectedDate) {
+    final now = DateTime.now();
+    
+    // 检查选择的日期是否为交易日（周一到周五）
+    final selectedWeekday = selectedDate.weekday; // 1=Monday, 7=Sunday
+    if (selectedWeekday < 1 || selectedWeekday > 5) {
+      return selectedDate; // 非交易日直接返回选择的日期
+    }
+    
+    // 检查选择的日期是否为今天
+    final today = DateTime(now.year, now.month, now.day);
+    final selectedDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    if (selectedDay != today) {
+      return selectedDate; // 不是今天，直接返回选择的日期
+    }
+    
+    // 检查当前时间是否在交易日9:30之前
+    final hour = now.hour;
+    final minute = now.minute;
+    final currentTime = hour * 100 + minute;
+    
+    if (currentTime < 930) {
+      // 9:30之前，返回前一个交易日
+      DateTime prevTradingDay = selectedDate.subtract(const Duration(days: 1));
+      
+      // 如果前一个交易日是周末，继续往前推
+      while (prevTradingDay.weekday > 5) {
+        prevTradingDay = prevTradingDay.subtract(const Duration(days: 1));
+      }
+      
+      return prevTradingDay;
+    }
+    
+    return selectedDate;
   }
 
   // 获取实时K线数据（单个股票）
@@ -331,8 +368,11 @@ class StockApiService {
       };
 
       print('📡 iFinD单批次请求: ${tsCodes.length}只股票');
+      ConsoleCaptureService.instance.capturePrint('📡 iFinD单批次请求: ${tsCodes.length}只股票');
       print('🔍 iFinD请求URL: $iFinDBaseUrl');
+      ConsoleCaptureService.instance.capturePrint('🔍 iFinD请求URL: $iFinDBaseUrl');
       print('🔍 iFinD请求数据: ${json.encode(requestData)}');
+      ConsoleCaptureService.instance.capturePrint('🔍 iFinD请求数据: ${json.encode(requestData)}');
 
       // 获取固定的access_token
       final currentToken = getCurrentAccessToken();
@@ -422,29 +462,93 @@ class StockApiService {
     }
   }
 
-  // 批量获取实时K线数据（优先使用iFinD，失败时回退到Tushare）
+  // 批量获取K线数据（根据时间和日期选择实时或历史接口）
   static Future<Map<String, KlineData>> getBatchRealTimeKlineData({
     required List<String> tsCodes,
+    required DateTime selectedDate,
   }) async {
-    print('📊 开始批量获取 ${tsCodes.length} 只股票的实时K线数据');
+    final logService = LogService.instance;
     
-    // 检查是否应该使用iFinD实时接口
-    if (shouldUseIFinDRealTime()) {
-      print('🚀 当前时间适合使用iFinD接口获取实时数据...');
-      Map<String, KlineData> iFinDResult = await getIFinDRealTimeData(tsCodes: tsCodes);
+    logService.info('API', '开始批量获取K线数据', data: {
+      'stockCount': tsCodes.length,
+      'selectedDate': DateFormat('yyyy-MM-dd').format(selectedDate),
+    });
+    
+    print('📊 开始批量获取 ${tsCodes.length} 只股票的K线数据');
+    print('📅 选择日期: ${DateFormat('yyyy-MM-dd').format(selectedDate)}');
+    
+    // 捕获控制台输出
+    ConsoleCaptureService.instance.capturePrint('📊 开始批量获取 ${tsCodes.length} 只股票的K线数据');
+    ConsoleCaptureService.instance.capturePrint('📅 选择日期: ${DateFormat('yyyy-MM-dd').format(selectedDate)}');
+    
+    // 检查是否应该使用实时数据接口
+    if (shouldUseRealTimeData(selectedDate)) {
+      logService.info('API', '使用实时数据接口');
+      print('🚀 当前时间适合使用实时数据接口...');
+      ConsoleCaptureService.instance.capturePrint('🚀 当前时间适合使用实时数据接口...');
       
-      if (iFinDResult.isNotEmpty) {
-        print('✅ iFinD接口成功获取 ${iFinDResult.length} 只股票的实时数据');
-        return iFinDResult;
+      // 优先使用iFinD实时接口
+      if (shouldUseIFinDRealTime()) {
+        logService.info('API', '使用iFinD实时接口');
+        print('🔧 使用iFinD实时接口获取数据...');
+        ConsoleCaptureService.instance.capturePrint('🔧 使用iFinD实时接口获取数据...');
+        Map<String, KlineData> iFinDResult = await getIFinDRealTimeData(tsCodes: tsCodes);
+        
+        if (iFinDResult.isNotEmpty) {
+          logService.info('API', 'iFinD接口成功', data: {
+            'successCount': iFinDResult.length,
+            'interface': 'iFinD_realtime'
+          });
+          print('✅ iFinD接口成功获取 ${iFinDResult.length} 只股票的实时数据');
+          ConsoleCaptureService.instance.capturePrint('✅ iFinD接口成功获取 ${iFinDResult.length} 只股票的实时数据');
+          return iFinDResult;
+        } else {
+          logService.warning('API', 'iFinD接口失败，尝试TuShare rt_k接口');
+          print('❌ iFinD接口获取失败，尝试TuShare rt_k接口...');
+          ConsoleCaptureService.instance.capturePrint('❌ iFinD接口获取失败，尝试TuShare rt_k接口...');
+          
+          // iFinD失败，尝试TuShare rt_k接口
+          Map<String, KlineData> tuShareResult = await _getTuShareRealTimeData(tsCodes: tsCodes);
+          if (tuShareResult.isNotEmpty) {
+            logService.info('API', 'TuShare rt_k接口成功', data: {
+              'successCount': tuShareResult.length,
+              'interface': 'TuShare_rt_k'
+            });
+            print('✅ TuShare rt_k接口成功获取 ${tuShareResult.length} 只股票的实时数据');
+            return tuShareResult;
+          } else {
+            logService.error('API', '所有实时接口都失败');
+            print('❌ 所有实时接口都失败，查询失败');
+            return {}; // 实时接口都失败，返回空结果
+          }
+        }
       } else {
-        print('❌ iFinD接口获取失败，查询失败');
-        return {}; // 直接返回空结果，不再回退到TuShare
+        // 使用TuShare rt_k接口
+        logService.info('API', '使用TuShare rt_k接口');
+        print('🔧 使用TuShare rt_k接口获取实时数据...');
+        Map<String, KlineData> tuShareResult = await _getTuShareRealTimeData(tsCodes: tsCodes);
+        if (tuShareResult.isNotEmpty) {
+          logService.info('API', 'TuShare rt_k接口成功', data: {
+            'successCount': tuShareResult.length,
+            'interface': 'TuShare_rt_k'
+          });
+          print('✅ TuShare rt_k接口成功获取 ${tuShareResult.length} 只股票的实时数据');
+          return tuShareResult;
+        } else {
+          logService.error('API', 'TuShare rt_k接口失败');
+          print('❌ TuShare rt_k接口获取失败，查询失败');
+          return {}; // TuShare rt_k失败，返回空结果
+        }
       }
     }
     
-    print('⚠️ 当前时间不适合使用iFinD接口，直接使用Tushare历史数据接口...');
+    print('⚠️ 当前时间不适合使用实时接口，使用历史数据接口...');
     
-    // 如果iFinD失败，回退到Tushare接口
+    // 获取应该查询的日期
+    final queryDate = getQueryDate(selectedDate);
+    print('📅 实际查询日期: ${DateFormat('yyyy-MM-dd').format(queryDate)}');
+    
+    // 使用历史数据接口
     Map<String, KlineData> result = {};
     
     // 使用智能优化器计算最优分组大小
@@ -466,6 +570,67 @@ class StockApiService {
       print('🔄 处理第 ${batchIndex + 1}/${batches.length} 批，包含 ${batch.length} 只股票');
       
       try {
+        // 使用历史数据批量查询接口
+        final batchResult = await getBatchHistoricalKlineDataSingleRequest(
+          tsCodes: batch,
+          queryDate: queryDate,
+        );
+        
+        // 合并结果
+        result.addAll(batchResult);
+        
+        // 使用优化的延时策略
+        if (batchIndex < batches.length - 1) {
+          await Future.delayed(delay);
+        }
+      } catch (e) {
+        print('❌ 第 ${batchIndex + 1} 批实时查询失败: $e');
+        // 如果批量查询失败，回退到单个查询
+        for (String tsCode in batch) {
+          try {
+            final klineData = await getHistoricalKlineData(tsCode: tsCode, queryDate: queryDate);
+            if (klineData != null) {
+              result[tsCode] = klineData;
+            }
+            await Future.delayed(const Duration(milliseconds: 100));
+          } catch (e) {
+            print('获取 $tsCode 的历史K线数据失败: $e');
+          }
+        }
+      }
+    }
+    
+    print('✅ 批量获取完成，成功获取 ${result.length} 只股票的实时数据');
+    return result;
+  }
+
+  // 使用TuShare rt_k接口获取实时数据
+  static Future<Map<String, KlineData>> _getTuShareRealTimeData({
+    required List<String> tsCodes,
+  }) async {
+    print('🔧 使用TuShare rt_k接口获取实时数据...');
+    
+    // 使用智能优化器计算最优分组大小
+    final batchSize = BatchOptimizer.getOptimalBatchSize(tsCodes.length, 'realtime');
+    final delay = BatchOptimizer.getOptimalDelay(batchSize);
+    
+    // 将股票代码分组
+    List<List<String>> batches = [];
+    for (int i = 0; i < tsCodes.length; i += batchSize) {
+      int end = (i + batchSize < tsCodes.length) ? i + batchSize : tsCodes.length;
+      batches.add(tsCodes.sublist(i, end));
+    }
+    
+    final optimizationInfo = BatchOptimizer.getOptimizationInfo(tsCodes.length, 'realtime');
+    print('🚀 TuShare rt_k优化策略: 分组大小=${batchSize}, 延时=${delay.inMilliseconds}ms, 预估时间=${optimizationInfo['estimatedTime']}秒');
+    
+    Map<String, KlineData> result = {};
+    
+    for (int batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      final batch = batches[batchIndex];
+      print('🔄 处理第 ${batchIndex + 1}/${batches.length} 批，包含 ${batch.length} 只股票');
+      
+      try {
         // 使用批量查询接口
         final batchResult = await getBatchRealTimeKlineDataSingleRequest(
           tsCodes: batch,
@@ -479,7 +644,7 @@ class StockApiService {
           await Future.delayed(delay);
         }
       } catch (e) {
-        print('❌ 第 ${batchIndex + 1} 批实时查询失败: $e');
+        print('❌ 第 ${batchIndex + 1} 批TuShare rt_k查询失败: $e');
         // 如果批量查询失败，回退到单个查询
         for (String tsCode in batch) {
           try {
@@ -495,8 +660,161 @@ class StockApiService {
       }
     }
     
-    print('✅ 批量获取完成，成功获取 ${result.length} 只股票的实时数据');
+    print('✅ TuShare rt_k批量获取完成，成功获取 ${result.length} 只股票的实时数据');
     return result;
+  }
+
+  // 获取单个股票的历史K线数据（指定日期）
+  static Future<KlineData?> getHistoricalKlineData({
+    required String tsCode,
+    required DateTime queryDate,
+  }) async {
+    try {
+      final String formattedDate = DateFormat('yyyyMMdd').format(queryDate);
+      
+      final Map<String, dynamic> requestData = {
+        "api_name": "daily",
+        "token": token,
+        "params": {
+          "ts_code": tsCode,
+          "start_date": formattedDate,
+          "end_date": formattedDate
+        },
+        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
+      };
+
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['code'] == 0) {
+          final data = responseData['data'];
+          if (data != null) {
+            final List<dynamic> items = data['items'] ?? [];
+            final List<dynamic> fieldsData = data['fields'] ?? [];
+            final List<String> fields = fieldsData.cast<String>();
+            
+            if (items.isNotEmpty) {
+              final item = items[0]; // 取第一条记录
+              Map<String, dynamic> itemMap = {};
+              for (int i = 0; i < fields.length && i < item.length; i++) {
+                itemMap[fields[i]] = item[i];
+              }
+              
+              return KlineData(
+                tsCode: itemMap['ts_code'] ?? '',
+                tradeDate: itemMap['trade_date'] ?? '',
+                open: (itemMap['open'] ?? 0.0).toDouble(),
+                high: (itemMap['high'] ?? 0.0).toDouble(),
+                low: (itemMap['low'] ?? 0.0).toDouble(),
+                close: (itemMap['close'] ?? 0.0).toDouble(),
+                preClose: (itemMap['pre_close'] ?? 0.0).toDouble(),
+                change: (itemMap['change'] ?? 0.0).toDouble(),
+                pctChg: (itemMap['pct_chg'] ?? 0.0).toDouble(),
+                vol: (itemMap['vol'] ?? 0.0).toDouble(),
+                amount: (itemMap['amount'] ?? 0.0).toDouble(),
+              );
+            }
+          }
+        } else {
+          print('❌ 获取历史数据API返回错误: ${responseData['code']} - ${responseData['msg']}');
+        }
+      } else {
+        print('❌ 获取历史数据HTTP请求失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 获取历史数据异常: $e');
+    }
+    
+    return null;
+  }
+
+  // 批量获取历史K线数据（单次请求）
+  static Future<Map<String, KlineData>> getBatchHistoricalKlineDataSingleRequest({
+    required List<String> tsCodes,
+    required DateTime queryDate,
+  }) async {
+    try {
+      final String formattedDate = DateFormat('yyyyMMdd').format(queryDate);
+      final String tsCodeStr = tsCodes.join(',');
+      
+      final Map<String, dynamic> requestData = {
+        "api_name": "daily",
+        "token": token,
+        "params": {
+          "ts_code": tsCodeStr,
+          "start_date": formattedDate,
+          "end_date": formattedDate
+        },
+        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
+      };
+
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['code'] == 0) {
+          final data = responseData['data'];
+          if (data != null) {
+            final List<dynamic> items = data['items'] ?? [];
+            final List<dynamic> fieldsData = data['fields'] ?? [];
+            final List<String> fields = fieldsData.cast<String>();
+            
+            Map<String, KlineData> result = {};
+            
+            for (var item in items) {
+              Map<String, dynamic> itemMap = {};
+              for (int i = 0; i < fields.length && i < item.length; i++) {
+                itemMap[fields[i]] = item[i];
+              }
+              
+              try {
+                final klineData = KlineData(
+                  tsCode: itemMap['ts_code'] ?? '',
+                  tradeDate: itemMap['trade_date'] ?? '',
+                  open: (itemMap['open'] ?? 0.0).toDouble(),
+                  high: (itemMap['high'] ?? 0.0).toDouble(),
+                  low: (itemMap['low'] ?? 0.0).toDouble(),
+                  close: (itemMap['close'] ?? 0.0).toDouble(),
+                  preClose: (itemMap['pre_close'] ?? 0.0).toDouble(),
+                  change: (itemMap['change'] ?? 0.0).toDouble(),
+                  pctChg: (itemMap['pct_chg'] ?? 0.0).toDouble(),
+                  vol: (itemMap['vol'] ?? 0.0).toDouble(),
+                  amount: (itemMap['amount'] ?? 0.0).toDouble(),
+                );
+                result[klineData.tsCode] = klineData;
+              } catch (e) {
+                print('❌ 解析历史数据失败: $e, 数据: $itemMap');
+              }
+            }
+            
+            return result;
+          }
+        } else {
+          print('❌ 批量获取历史数据API返回错误: ${responseData['code']} - ${responseData['msg']}');
+        }
+      } else {
+        print('❌ 批量获取历史数据HTTP请求失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 批量获取历史数据异常: $e');
+    }
+    
+    return {};
   }
 
   // 单次请求获取多个股票的实时K线数据
@@ -517,8 +835,11 @@ class StockApiService {
       };
 
       print('📡 批量请求实时数据: ${tsCodes.length}只股票');
+      ConsoleCaptureService.instance.capturePrint('📡 批量请求实时数据: ${tsCodes.length}只股票');
       print('🔍 请求URL: $baseUrl');
+      ConsoleCaptureService.instance.capturePrint('🔍 请求URL: $baseUrl');
       print('🔍 请求数据: ${json.encode(requestData)}');
+      ConsoleCaptureService.instance.capturePrint('🔍 请求数据: ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(baseUrl),
@@ -535,7 +856,9 @@ class StockApiService {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
         print('🔍 API响应状态码: ${responseData['code']}');
+        ConsoleCaptureService.instance.capturePrint('🔍 API响应状态码: ${responseData['code']}');
         print('🔍 API响应消息: ${responseData['msg'] ?? '无消息'}');
+        ConsoleCaptureService.instance.capturePrint('🔍 API响应消息: ${responseData['msg'] ?? '无消息'}');
         
         if (responseData['code'] == 0) {
           final data = responseData['data'];
@@ -589,10 +912,12 @@ class StockApiService {
           }
         } else {
           print('❌ API返回错误: ${responseData['code']} - ${responseData['msg']}');
+          ConsoleCaptureService.instance.capturePrint('❌ API返回错误: ${responseData['code']} - ${responseData['msg']}');
           return {};
         }
       } else {
         print('❌ HTTP请求失败: ${response.statusCode}');
+        ConsoleCaptureService.instance.capturePrint('❌ HTTP请求失败: ${response.statusCode}');
         return {};
       }
     } catch (e) {
@@ -790,6 +1115,7 @@ class StockApiService {
       };
 
       print('📡 批量请求: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
+      ConsoleCaptureService.instance.capturePrint('📡 批量请求: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
 
       final response = await http.post(
         Uri.parse(baseUrl),

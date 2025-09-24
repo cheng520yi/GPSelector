@@ -43,6 +43,13 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     maType: 'ma20',
   );
 
+  // 成交额范围配置
+  AmountRangeConfig _amountRangeConfig = AmountRangeConfig(
+    enabled: false,
+    minAmount: 0.0,
+    maxAmount: 1000.0,
+  );
+
   // 预设选项
   final List<double> _amountThresholds = [5.0, 10.0, 20.0, 50.0, 100.0];
   final List<int> _consecutiveDaysOptions = [3, 5, 10, 20];
@@ -82,6 +89,8 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
 
       _enableConsecutiveDays = combination.enableConsecutiveDays;
       _consecutiveDaysConfig = combination.consecutiveDaysConfig;
+      
+      _amountRangeConfig = combination.amountRangeConfig;
     } else {
       _amountThresholdController.text = _amountThreshold.toString();
     }
@@ -274,56 +283,164 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '成交额阈值 (亿元)',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: _amountThresholdController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            hintText: '请输入成交额阈值',
-            border: OutlineInputBorder(),
-            suffixText: '亿元',
-          ),
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return '请输入成交额阈值';
-            }
-            final amount = double.tryParse(value);
-            if (amount == null || amount <= 0) {
-              return '请输入有效的成交额阈值';
-            }
-            return null;
-          },
-          onChanged: (value) {
-            final amount = double.tryParse(value);
-            if (amount != null) {
-              setState(() {
-                _amountThreshold = amount;
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: _amountThresholds.map((threshold) {
-            return FilterChip(
-              label: Text('${threshold.toStringAsFixed(0)}亿'),
-              selected: _amountThreshold == threshold,
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() {
-                    _amountThreshold = threshold;
-                    _amountThresholdController.text = threshold.toString();
-                  });
-                }
+        Row(
+          children: [
+            Text(
+              '成交额筛选 (亿元)',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            Spacer(),
+            Switch(
+              value: _amountRangeConfig.enabled,
+              onChanged: (value) {
+                setState(() {
+                  _amountRangeConfig = AmountRangeConfig(
+                    enabled: value,
+                    minAmount: _amountRangeConfig.minAmount,
+                    maxAmount: _amountRangeConfig.maxAmount,
+                  );
+                });
               },
-            );
-          }).toList(),
+            ),
+            Text(
+              _amountRangeConfig.enabled ? '范围模式' : '阈值模式',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+          ],
         ),
+        const SizedBox(height: 8),
+        
+        if (!_amountRangeConfig.enabled) ...[
+          // 阈值模式
+          TextFormField(
+            controller: _amountThresholdController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              hintText: '请输入成交额阈值',
+              border: OutlineInputBorder(),
+              suffixText: '亿元',
+              labelText: '最小成交额',
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return '请输入成交额阈值';
+              }
+              final amount = double.tryParse(value);
+              if (amount == null || amount <= 0) {
+                return '请输入有效的成交额阈值';
+              }
+              return null;
+            },
+            onChanged: (value) {
+              final amount = double.tryParse(value);
+              if (amount != null) {
+                setState(() {
+                  _amountThreshold = amount;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: _amountThresholds.map((threshold) {
+              return FilterChip(
+                label: Text('${threshold.toStringAsFixed(0)}亿'),
+                selected: _amountThreshold == threshold,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() {
+                      _amountThreshold = threshold;
+                      _amountThresholdController.text = threshold.toString();
+                    });
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        ] else ...[
+          // 范围模式
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: _amountRangeConfig.minAmount.toString(),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    hintText: '最小值',
+                    border: OutlineInputBorder(),
+                    suffixText: '亿',
+                    labelText: '最小成交额',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '请输入最小成交额';
+                    }
+                    final amount = double.tryParse(value);
+                    if (amount == null || amount < 0) {
+                      return '请输入有效的最小成交额';
+                    }
+                    return null;
+                  },
+                  onChanged: (value) {
+                    final amount = double.tryParse(value);
+                    if (amount != null) {
+                      setState(() {
+                        _amountRangeConfig = AmountRangeConfig(
+                          enabled: _amountRangeConfig.enabled,
+                          minAmount: amount,
+                          maxAmount: _amountRangeConfig.maxAmount,
+                        );
+                      });
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text('至', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextFormField(
+                  initialValue: _amountRangeConfig.maxAmount >= 1000 ? '' : _amountRangeConfig.maxAmount.toString(),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    hintText: '最大值（空=无限制）',
+                    border: OutlineInputBorder(),
+                    suffixText: '亿',
+                    labelText: '最大成交额',
+                  ),
+                  validator: (value) {
+                    if (value != null && value.trim().isNotEmpty) {
+                      final amount = double.tryParse(value);
+                      if (amount == null || amount <= _amountRangeConfig.minAmount) {
+                        return '最大值必须大于最小值';
+                      }
+                    }
+                    return null;
+                  },
+                  onChanged: (value) {
+                    double maxAmount = 1000.0; // 默认无上限
+                    if (value.trim().isNotEmpty) {
+                      maxAmount = double.tryParse(value) ?? 1000.0;
+                    }
+                    setState(() {
+                      _amountRangeConfig = AmountRangeConfig(
+                        enabled: _amountRangeConfig.enabled,
+                        minAmount: _amountRangeConfig.minAmount,
+                        maxAmount: maxAmount,
+                      );
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '提示：最大值留空表示无上限',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ],
       ],
     );
   }
@@ -711,6 +828,7 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
               description: _descriptionController.text.trim(),
               amountThreshold: _amountThreshold,
               selectedDate: _selectedDate,
+              amountRangeConfig: _amountRangeConfig,
               enablePctChg: _enablePctChg,
               pctChgMin: _pctChgMin,
               pctChgMax: _pctChgMax,
@@ -727,6 +845,7 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
               description: _descriptionController.text.trim(),
               amountThreshold: _amountThreshold,
               selectedDate: _selectedDate,
+              amountRangeConfig: _amountRangeConfig,
               enablePctChg: _enablePctChg,
               pctChgMin: _pctChgMin,
               pctChgMax: _pctChgMax,
