@@ -6,6 +6,7 @@ import 'stock_api_service.dart';
 import 'stock_pool_service.dart';
 import 'condition_combination_service.dart';
 import 'ma_calculation_service.dart';
+import 'stock_pool_config_service.dart';
 import 'blacklist_service.dart';
 import 'log_service.dart';
 import 'console_capture_service.dart';
@@ -49,6 +50,60 @@ class StockFilterService {
       print('✅ 从本地获取到 ${stockPool.length} 只股票');
       ConsoleCaptureService.instance.capturePrint('✅ 从本地获取到 ${stockPool.length} 只股票');
 
+      // 额外处理：当筛选日期为当天时的接口判断逻辑
+      final config = await StockPoolConfigService.getConfig();
+      final DateTime currentDateTime = DateTime.now();
+      final DateTime today = DateTime(currentDateTime.year, currentDateTime.month, currentDateTime.day);
+      final DateTime selectedDay = DateTime(
+        combination.selectedDate.year,
+        combination.selectedDate.month,
+        combination.selectedDate.day,
+      );
+
+      bool useIFinDRealTime = false;
+      bool allowHistoryFetch = true;
+      if (selectedDay == today) {
+        final String dateStr = DateFormat('yyyy-MM-dd').format(selectedDay);
+
+        if (!StockApiService.isTradingDay(combination.selectedDate)) {
+          final message = '当前日期 $dateStr 为非交易日，暂无数据，请选择历史交易日。';
+          print('⚠️ $message');
+          ConsoleCaptureService.instance.capturePrint('⚠️ $message');
+          throw Exception('当前日期无数据：非交易日');
+        }
+
+        if (config.enableRealtimeInterface) {
+          if (!StockApiService.isAfterTradingStart(referenceTime: currentDateTime)) {
+            final message = '当前时间未到 09:30，iFinD 暂无 $dateStr 的数据。';
+            print('⚠️ $message');
+            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
+            throw Exception('当前日期无数据：未到交易时间');
+          }
+
+          if (!StockApiService.isWithinRealTimeWindow(referenceTime: currentDateTime)) {
+            final message = '当前时间不在交易时段，iFinD 暂无 $dateStr 的数据。';
+            print('⚠️ $message');
+            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
+            throw Exception('当前日期无数据：非交易时段');
+          }
+
+          useIFinDRealTime = true;
+          allowHistoryFetch = false;
+        } else {
+          useIFinDRealTime = false;
+          allowHistoryFetch = StockApiService.isAfterHistoryAvailability(referenceTime: currentDateTime);
+          if (!allowHistoryFetch) {
+            final message = '未开启实时接口，且当前时间未到 16:30，TuShare 暂无 $dateStr 的历史数据。';
+            print('⚠️ $message');
+            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
+            throw Exception('当前日期无数据：历史数据未更新');
+          }
+        }
+      } else {
+        useIFinDRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);
+        allowHistoryFetch = true;
+      }
+
       // 2. 黑名单过滤（第一轮筛选）
       print('🔍 黑名单过滤: 移除黑名单中的股票');
       ConsoleCaptureService.instance.capturePrint('🔍 黑名单过滤: 移除黑名单中的股票');
@@ -67,9 +122,8 @@ class StockFilterService {
       }
 
       // 3. 判断是否使用iFinD实时K线数据
-      final bool useIFinDRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);
       final bool isTradingTime = StockApiService.isTradingTime();
-      final now = DateTime.now();
+      final DateTime now = currentDateTime;
       
       print('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
       ConsoleCaptureService.instance.capturePrint('🕐 当前时间: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(now)}');
@@ -104,6 +158,11 @@ class StockFilterService {
       } else {
         print('📡 获取${combination.selectedDate}的TuShare历史K线数据...');
         ConsoleCaptureService.instance.capturePrint('📡 获取${combination.selectedDate}的TuShare历史K线数据...');
+        if (!allowHistoryFetch) {
+          print('⚠️ 当前配置不允许获取历史数据');
+          ConsoleCaptureService.instance.capturePrint('⚠️ 当前配置不允许获取历史数据');
+          throw Exception('当前日期无数据：历史数据不可用');
+        }
         klineDataMap = await StockPoolService.getBatchDailyKlineData(
           tsCodes: tsCodes,
           targetDate: combination.selectedDate,

@@ -7,11 +7,13 @@ import 'package:path_provider/path_provider.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import 'batch_optimizer.dart';
+import 'stock_pool_config_service.dart';
 
 class StockPoolService {
   static const String baseUrl = 'http://api.tushare.pro';
   static const String token = 'ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce';
-  static const double poolThreshold = 5.0; // 股票池阈值（亿元）
+  static const double defaultPoolThreshold = 5.0; // 默认成交额阈值（亿元）
+  static double _currentThreshold = defaultPoolThreshold;
   
   // 缓存的股票池
   static List<StockInfo> _cachedStockPool = [];
@@ -350,6 +352,19 @@ class StockPoolService {
     int? customBatchSize, // 自定义分组大小
     Function(int current, int total)? onProgress, // 进度回调
   }) async {
+    // 如果指定了精确日期，优先使用 trade_date 一次性获取，避免多股票 multi-query 的兼容性问题
+    if (targetDate != null) {
+      print('📊 使用 trade_date 精确获取 ${tsCodes.length} 只股票的总市值数据，目标日期: ${DateFormat('yyyy-MM-dd').format(targetDate)}');
+      onProgress?.call(0, 1);
+      final result = await _getMarketValueDataByTradeDate(
+        tsCodes: tsCodes,
+        tradeDate: targetDate,
+      );
+      onProgress?.call(1, 1);
+      print('✅ 精确日期总市值查询完成，成功获取 ${result.length} 只股票的数据');
+      return result;
+    }
+    
     Map<String, double> result = {};
     
     // 使用智能优化器计算最优分组大小
@@ -394,6 +409,121 @@ class StockPoolService {
     }
     
     print('✅ 批量获取总市值数据完成，成功获取 ${result.length} 只股票的数据');
+    return result;
+  }
+
+  // 根据 trade_date 一次性获取需要股票的总市值数据，并在必要时向前回溯补齐
+  static Future<Map<String, double>> _getMarketValueDataByTradeDate({
+    required List<String> tsCodes,
+    required DateTime tradeDate,
+  }) async {
+    final Set<String> targetCodes = tsCodes.toSet();
+    final int maxLookBackDays = 5; // 最多回溯 5 天，处理节假日/周末
+    
+    DateTime currentDate = tradeDate;
+    for (int attempt = 0; attempt <= maxLookBackDays; attempt++) {
+      final String tradeDateStr = DateFormat('yyyyMMdd').format(currentDate);
+      print('📡 请求 trade_date=$tradeDateStr 的总市值数据 (尝试 ${attempt + 1}/${maxLookBackDays + 1})');
+      
+      final Map<String, double> result = await _fetchMarketValueForTradeDate(
+        tradeDateStr: tradeDateStr,
+        targetCodes: targetCodes,
+      );
+      
+      if (result.isNotEmpty) {
+        if (result.length < targetCodes.length) {
+          final missing = targetCodes.difference(result.keys.toSet());
+          if (missing.isNotEmpty) {
+            print('⚠️ 以下股票在 trade_date=$tradeDateStr 未获取到总市值数据: ${missing.join(', ')}');
+          }
+        }
+        return result;
+      }
+      
+      // 若当天没有数据，则回溯一天继续尝试
+      currentDate = currentDate.subtract(const Duration(days: 1));
+    }
+    
+    print('❌ 在指定日期及向前 ${maxLookBackDays} 天范围内未能获取到所需股票的总市值数据');
+    return {};
+  }
+
+  // 实际向 TuShare 请求指定 trade_date 的市值数据，并按需求筛选
+  static Future<Map<String, double>> _fetchMarketValueForTradeDate({
+    required String tradeDateStr,
+    required Set<String> targetCodes,
+  }) async {
+    Map<String, double> result = {};
+    const int pageSize = 5000;
+    int offset = 0;
+    
+    while (true) {
+      final Map<String, dynamic> requestData = {
+        "api_name": "daily_basic",
+        "token": token,
+        "params": {
+          "trade_date": tradeDateStr,
+          "limit": pageSize,
+          "offset": offset,
+        },
+        "fields": "ts_code,total_mv",
+      };
+      
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+      
+      if (response.statusCode != 200) {
+        print('❌ trade_date=$tradeDateStr 市值请求失败: HTTP ${response.statusCode}');
+        return {};
+      }
+      
+      final Map<String, dynamic> responseData = json.decode(response.body);
+      if (responseData['code'] != 0) {
+        print('❌ trade_date=$tradeDateStr 市值请求返回错误: ${responseData['code']} - ${responseData['msg']}');
+        return {};
+      }
+      
+      final data = responseData['data'];
+      if (data == null) {
+        return {};
+      }
+      
+      final List<dynamic> items = data['items'] ?? [];
+      final List<dynamic> fieldsData = data['fields'] ?? [];
+      final List<String> fields = fieldsData.cast<String>();
+      
+      final int tsCodeIndex = fields.indexOf('ts_code');
+      final int totalMvIndex = fields.indexOf('total_mv');
+      
+      for (final item in items) {
+        if (tsCodeIndex < 0 || tsCodeIndex >= item.length) continue;
+        final String tsCode = item[tsCodeIndex]?.toString() ?? '';
+        if (tsCode.isEmpty || !targetCodes.contains(tsCode)) continue;
+        if (result.containsKey(tsCode)) continue;
+        
+        double totalMv = 0.0;
+        if (totalMvIndex >= 0 && totalMvIndex < item.length && item[totalMvIndex] != null) {
+          totalMv = double.tryParse(item[totalMvIndex].toString()) ?? 0.0;
+        }
+        
+        if (totalMv > 0) {
+          // TuShare 返回单位为万元，转换为亿元
+          result[tsCode] = totalMv / 10000.0;
+        }
+      }
+      
+      if (items.length < pageSize || result.length == targetCodes.length) {
+        break;
+      }
+      
+      offset += pageSize;
+    }
+    
     return result;
   }
 
@@ -507,18 +637,35 @@ class StockPoolService {
   // 构建股票池（成交额超过5亿的股票）
   static Future<List<StockInfo>> buildStockPool({
     bool forceRefresh = false,
+    double? amountThreshold, // 成交额阈值（亿元）
     double? minMarketValue, // 最小总市值（亿元）
     double? maxMarketValue, // 最大总市值（亿元）
     DateTime? targetDate, // 目标日期，如果指定则筛选该日期的数据
     Function(int progress)? onProgress, // 进度回调函数
   }) async {
+    double effectiveAmountThreshold = amountThreshold ?? defaultPoolThreshold;
+    if (amountThreshold == null) {
+      try {
+        final config = await StockPoolConfigService.getConfig();
+        effectiveAmountThreshold = config.amountThreshold;
+      } catch (e) {
+        print('⚠️ 加载成交额阈值配置失败，使用默认值 $defaultPoolThreshold 亿: $e');
+        effectiveAmountThreshold = defaultPoolThreshold;
+      }
+    }
+
+    final bool thresholdChanged = (_currentThreshold - effectiveAmountThreshold).abs() > 1e-6;
+
     // 检查缓存是否有效
-    if (!forceRefresh && 
-        _cachedStockPool.isNotEmpty && 
+    if (!forceRefresh &&
+        !thresholdChanged &&
+        _cachedStockPool.isNotEmpty &&
         _lastUpdateTime != null &&
         DateTime.now().difference(_lastUpdateTime!) < cacheValidDuration) {
       print('使用缓存的股票池，共 ${_cachedStockPool.length} 只股票');
       print('缓存时间: $_lastUpdateTime');
+      print('当前成交额阈值: ${_currentThreshold.toStringAsFixed(2)}亿元');
+      _currentThreshold = effectiveAmountThreshold;
       return _cachedStockPool;
     }
 
@@ -589,7 +736,7 @@ class StockPoolService {
         final KlineData? klineData = klineDataMap[stock.tsCode];
         
         // 检查成交额条件
-        if (klineData == null || klineData.amountInYi < poolThreshold) {
+        if (klineData == null || klineData.amountInYi < effectiveAmountThreshold) {
           continue;
         }
         
@@ -637,15 +784,16 @@ class StockPoolService {
       // 6. 保存到本地（包含K线数据）(95-100%)
       onProgress?.call(95);
       await saveStockPoolToLocal(
-        stockPool, 
+        stockPool,
         klineDataMap,
         minMarketValue: minMarketValue,
         maxMarketValue: maxMarketValue,
         targetDate: targetDate,
+        threshold: effectiveAmountThreshold,
       );
       onProgress?.call(100);
 
-      String conditionText = '成交额 ≥ ${poolThreshold}亿元';
+      String conditionText = '成交额 ≥ ${effectiveAmountThreshold.toStringAsFixed(2)}亿元';
       if (targetDate != null) {
         conditionText += ' (${DateFormat('yyyy-MM-dd').format(targetDate)})';
       }
@@ -653,6 +801,7 @@ class StockPoolService {
         conditionText += ', 总市值在[${minMarketValue ?? 0}亿, ${maxMarketValue ?? '∞'}亿]范围内';
       }
       print('股票池构建完成，共 ${stockPool.length} 只股票（$conditionText）');
+      _currentThreshold = effectiveAmountThreshold;
       return stockPool;
       
     } catch (e) {
@@ -668,7 +817,7 @@ class StockPoolService {
       'lastUpdateTime': _lastUpdateTime,
       'isValid': _lastUpdateTime != null && 
                  DateTime.now().difference(_lastUpdateTime!) < cacheValidDuration,
-      'threshold': poolThreshold,
+      'threshold': _currentThreshold,
     };
   }
 
@@ -693,11 +842,12 @@ class StockPoolService {
 
   // 保存股票池到本地（包含K线数据）
   static Future<void> saveStockPoolToLocal(
-    List<StockInfo> stockPool, 
+    List<StockInfo> stockPool,
     Map<String, KlineData> klineDataMap, {
     double? minMarketValue,
     double? maxMarketValue,
     DateTime? targetDate,
+    double threshold = defaultPoolThreshold,
   }) async {
     try {
       final file = File(await _getLocalFilePath());
@@ -705,7 +855,7 @@ class StockPoolService {
         'stockPool': stockPool.map((stock) => stock.toJson()).toList(),
         'klineData': klineDataMap.map((key, value) => MapEntry(key, value.toJson())),
         'lastUpdateTime': DateTime.now().toIso8601String(),
-        'threshold': poolThreshold,
+        'threshold': threshold,
         'minMarketValue': minMarketValue,
         'maxMarketValue': maxMarketValue,
         'targetDate': targetDate?.toIso8601String(),
@@ -724,12 +874,21 @@ class StockPoolService {
       final file = File(await _getLocalFilePath());
       if (!await file.exists()) {
         print('本地股票池文件不存在');
-        return {'stockPool': <StockInfo>[], 'klineData': <String, KlineData>{}};
+        _currentThreshold = defaultPoolThreshold;
+        return {
+          'stockPool': <StockInfo>[],
+          'klineData': <String, KlineData>{},
+          'threshold': defaultPoolThreshold,
+        };
       }
 
       final jsonString = await file.readAsString();
       final jsonData = json.decode(jsonString);
       
+      final double savedThreshold =
+          (jsonData['threshold'] is num) ? (jsonData['threshold'] as num).toDouble() : defaultPoolThreshold;
+      _currentThreshold = savedThreshold;
+
       final List<dynamic> stockList = jsonData['stockPool'] ?? [];
       final List<StockInfo> stockPool = stockList
           .map((json) => StockInfo.fromJson(json))
@@ -741,10 +900,19 @@ class StockPoolService {
       );
 
       print('从本地加载股票池，共 ${stockPool.length} 只股票');
-      return {'stockPool': stockPool, 'klineData': klineData};
+      return {
+        'stockPool': stockPool,
+        'klineData': klineData,
+        'threshold': savedThreshold,
+      };
     } catch (e) {
       print('从本地加载股票池失败: $e');
-      return {'stockPool': <StockInfo>[], 'klineData': <String, KlineData>{}};
+      _currentThreshold = defaultPoolThreshold;
+      return {
+        'stockPool': <StockInfo>[],
+        'klineData': <String, KlineData>{},
+        'threshold': defaultPoolThreshold,
+      };
     }
   }
 
@@ -757,7 +925,7 @@ class StockPoolService {
           'stockCount': 0,
           'lastUpdateTime': null,
           'isValid': false,
-          'threshold': poolThreshold,
+          'threshold': defaultPoolThreshold,
           'enableMarketValueFilter': false,
           'minMarketValue': null,
           'maxMarketValue': null,
@@ -773,11 +941,15 @@ class StockPoolService {
       final isValid = lastUpdateTime != null && 
                      now.difference(lastUpdateTime) < const Duration(days: 1); // 本地数据1天有效
 
+      final threshold =
+          (jsonData['threshold'] is num) ? (jsonData['threshold'] as num).toDouble() : defaultPoolThreshold;
+      _currentThreshold = threshold;
+
       return {
         'stockCount': (jsonData['stockPool'] as List?)?.length ?? 0,
         'lastUpdateTime': lastUpdateTime,
         'isValid': isValid,
-        'threshold': jsonData['threshold'] ?? poolThreshold,
+        'threshold': threshold,
         'enableMarketValueFilter': jsonData['enableMarketValueFilter'] ?? false,
         'minMarketValue': jsonData['minMarketValue'],
         'maxMarketValue': jsonData['maxMarketValue'],
@@ -785,11 +957,12 @@ class StockPoolService {
       };
     } catch (e) {
       print('获取本地股票池信息失败: $e');
+      _currentThreshold = defaultPoolThreshold;
       return {
         'stockCount': 0,
         'lastUpdateTime': null,
         'isValid': false,
-        'threshold': poolThreshold,
+        'threshold': defaultPoolThreshold,
         'enableMarketValueFilter': false,
         'minMarketValue': null,
         'maxMarketValue': null,

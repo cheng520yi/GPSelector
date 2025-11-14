@@ -9,6 +9,7 @@ class StockPoolConfigService {
   static const String _keySelectedDate = 'selected_date';
   static const String _keyAutoUpdate = 'auto_update';
   static const String _keyUpdateInterval = 'update_interval';
+  static const String _keyEnableRealtimeInterface = 'enable_realtime_interface';
 
   // 股票池配置模型
   static Future<StockPoolConfig> getConfig() async {
@@ -22,6 +23,7 @@ class StockPoolConfigService {
       selectedDate: DateTime.tryParse(prefs.getString(_keySelectedDate) ?? '') ?? DateTime.now(),
       autoUpdate: prefs.getBool(_keyAutoUpdate) ?? false,
       updateInterval: prefs.getInt(_keyUpdateInterval) ?? 24, // 默认24小时
+      enableRealtimeInterface: prefs.getBool(_keyEnableRealtimeInterface) ?? false,
     );
   }
 
@@ -46,8 +48,15 @@ class StockPoolConfigService {
     await prefs.setString(_keySelectedDate, config.selectedDate.toIso8601String());
     await prefs.setBool(_keyAutoUpdate, config.autoUpdate);
     await prefs.setInt(_keyUpdateInterval, config.updateInterval);
+    await prefs.setBool(_keyEnableRealtimeInterface, config.enableRealtimeInterface);
     
     print('💾 配置服务保存完成');
+  }
+
+  // 单独更新实时接口开关
+  static Future<void> setRealtimeInterfaceEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyEnableRealtimeInterface, enabled);
   }
 
   // 重置为默认配置
@@ -83,6 +92,7 @@ class StockPoolConfig {
   final DateTime selectedDate;
   final bool autoUpdate;
   final int updateInterval; // 小时
+  final bool enableRealtimeInterface;
 
   StockPoolConfig({
     this.enableMarketValueFilter = false,
@@ -92,6 +102,7 @@ class StockPoolConfig {
     DateTime? selectedDate,
     this.autoUpdate = false,
     this.updateInterval = 24,
+    this.enableRealtimeInterface = false,
   }) : selectedDate = selectedDate ?? DateTime.now();
 
   Map<String, dynamic> toJson() {
@@ -103,6 +114,7 @@ class StockPoolConfig {
       'selectedDate': selectedDate.toIso8601String(),
       'autoUpdate': autoUpdate,
       'updateInterval': updateInterval,
+      'enableRealtimeInterface': enableRealtimeInterface,
     };
   }
 
@@ -115,6 +127,7 @@ class StockPoolConfig {
       selectedDate: DateTime.tryParse(json['selectedDate'] ?? '') ?? DateTime.now(),
       autoUpdate: json['autoUpdate'] ?? false,
       updateInterval: json['updateInterval'] ?? 24,
+      enableRealtimeInterface: json['enableRealtimeInterface'] ?? false,
     );
   }
 
@@ -126,6 +139,7 @@ class StockPoolConfig {
     DateTime? selectedDate,
     bool? autoUpdate,
     int? updateInterval,
+    bool? enableRealtimeInterface,
   }) {
     return StockPoolConfig(
       enableMarketValueFilter: enableMarketValueFilter ?? this.enableMarketValueFilter,
@@ -135,6 +149,7 @@ class StockPoolConfig {
       selectedDate: selectedDate ?? this.selectedDate,
       autoUpdate: autoUpdate ?? this.autoUpdate,
       updateInterval: updateInterval ?? this.updateInterval,
+      enableRealtimeInterface: enableRealtimeInterface ?? this.enableRealtimeInterface,
     );
   }
 }

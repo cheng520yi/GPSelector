@@ -12,6 +12,7 @@ import 'console_capture_service.dart';
 class StockApiService {
   static const String baseUrl = 'http://api.tushare.pro';
   static const String token = 'ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce';
+  //e7b48cdaaf2dac19f35a9ed39eb59dfbdec09d1b1f2c8a8290dcbf99
   
   // iFinD实时行情接口配置
   static const String iFinDBaseUrl = 'https://quantapi.51ifind.com/api/v1/real_time_quotation';
@@ -21,7 +22,7 @@ class StockApiService {
   // static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTA5LTEwIDE2OjA3OjQ5In0=.eyJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyIjp7ImFjY291bnQiOiJzaGl5b25nMTI5NyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEwLTEwIDE2OjA3OjIwIiwic2Vzc3Npb24iOiIyOWQwNjZkOTM4MzNiMTA3MTlkZDAxNmNlMTYxZjIxNSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc1NzQ5MTY2ODk4MyIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.87A28522BEA4446B318DCE02DC7DDA5D9A0AE4E7E4CB2EC45EA7F3A82F13903F';
   
   // 固定的access_token（不再动态刷新）
-  static const String _currentAccessToken = '4dbd083c01b3b17f96468f77da864bc765f1d2be.signs_ODA2MTg0ODg1';
+  static const String _currentAccessToken = 'fff8acc44c6183bddf175621f9adf620758fee22.signs_ODE5NjIzMzgx';
   
   // TODO: 暂时注释掉token过期时间管理
   // static DateTime? _tokenExpireTime;
@@ -143,51 +144,60 @@ class StockApiService {
   }
   */
 
-  // 判断当前时间是否为交易日且在交易时间内（9:30-15:00）
+  // 判断给定日期是否为交易日（目前仅排除周末）
+  static bool isTradingDay(DateTime date) {
+    final weekday = date.weekday; // 1=Monday, 7=Sunday
+    return weekday >= 1 && weekday <= 5;
+  }
+
+  // 判断当前时间是否在交易时间窗口（默认9:30-16:30）
   static bool isTradingTime() {
-    final now = DateTime.now();
-    final weekday = now.weekday; // 1=Monday, 7=Sunday
-    
-    // 检查是否为工作日（周一到周五）
-    if (weekday < 1 || weekday > 5) {
+    return isWithinRealTimeWindow();
+  }
+
+  // 判断当前时间是否在实时窗口内（≥ 09:30，当天交易日）
+  static bool isWithinRealTimeWindow({DateTime? referenceTime}) {
+    final now = referenceTime ?? DateTime.now();
+    if (!isTradingDay(now)) {
       return false;
     }
-    
-    // 检查时间是否在9:30-15:00之间
-    final hour = now.hour;
-    final minute = now.minute;
-    final currentTime = hour * 100 + minute;
-    
-    // 9:30 = 930, 15:00 = 1500
-    return currentTime >= 930 && currentTime <= 1500;
+    final currentTime = now.hour * 100 + now.minute;
+    return currentTime >= 930;
+  }
+
+  // 判断当前时间是否已经过了交易开始时间（9:30）
+  static bool isAfterTradingStart({DateTime? referenceTime}) {
+    final now = referenceTime ?? DateTime.now();
+    final currentTime = now.hour * 100 + now.minute;
+    return currentTime >= 930;
   }
 
   /// 判断是否应该使用实时数据接口（iFinD或TuShare rt_k）
-  /// 只在交易日9:30-16:30使用实时接口，其他时间使用历史接口
+  /// 仅在交易日且当前时间晚于09:30时使用实时接口，其他情况使用历史接口
   static bool shouldUseRealTimeData(DateTime selectedDate) {
     final now = DateTime.now();
     
-    // 检查选择的日期是否为交易日（周一到周五）
-    final selectedWeekday = selectedDate.weekday; // 1=Monday, 7=Sunday
-    if (selectedWeekday < 1 || selectedWeekday > 5) {
+    if (!isTradingDay(selectedDate)) {
       return false;
     }
     
-    // 检查选择的日期是否为今天
     final today = DateTime(now.year, now.month, now.day);
     final selectedDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
     if (selectedDay != today) {
       return false;
     }
     
-    // 检查当前时间是否在交易日9:30-16:30之间
-    final hour = now.hour;
-    final minute = now.minute;
-    final currentTime = hour * 100 + minute;
-    
-    // 交易日时间范围：9:30-16:30
-    // 9:30 = 930, 16:30 = 1630
-    return currentTime >= 930 && currentTime <= 1630;
+    return isWithinRealTimeWindow(referenceTime: now);
+  }
+
+  /// 判断当前时间是否在历史接口可用窗口（当日 16:30 之后）
+  static bool isAfterHistoryAvailability({DateTime? referenceTime}) {
+    final now = referenceTime ?? DateTime.now();
+    if (!isTradingDay(now)) {
+      return true; // 非交易日默认允许直接使用历史数据
+    }
+    final currentTime = now.hour * 100 + now.minute;
+    return currentTime >= 1630;
   }
 
   /// 判断是否应该使用iFinD实时接口（默认选择）

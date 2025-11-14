@@ -128,6 +128,7 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
         selectedDate: _config.selectedDate,
         autoUpdate: _config.autoUpdate,
         updateInterval: _config.updateInterval,
+        enableRealtimeInterface: _config.enableRealtimeInterface,
       );
       
       print('💾 保存配置: enableMarketValueFilter=${updatedConfig.enableMarketValueFilter}, minMarketValue=${updatedConfig.minMarketValue}, maxMarketValue=${updatedConfig.maxMarketValue}');
@@ -162,6 +163,10 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
     final localInfo = await StockPoolService.getLocalPoolInfo();
     print('📊 加载股票池信息: enableMarketValueFilter=${localInfo['enableMarketValueFilter']}, minMarketValue=${localInfo['minMarketValue']}, maxMarketValue=${localInfo['maxMarketValue']}');
     setState(() {
+      final thresholdValue = localInfo['threshold'];
+      if (thresholdValue is num) {
+        localInfo['threshold'] = thresholdValue.toDouble();
+      }
       _poolInfo = localInfo;
     });
   }
@@ -209,6 +214,7 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
       // 使用当前配置进行股票池构建
       await StockPoolService.buildStockPool(
         forceRefresh: true,
+        amountThreshold: _config.amountThreshold,
         minMarketValue: _config.minMarketValue,
         maxMarketValue: _config.maxMarketValue,
         targetDate: _config.selectedDate, // 使用选择的日期
@@ -354,8 +360,11 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
           await _onWillPop();
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Scaffold(
+          appBar: AppBar(
           title: const Text('股票池配置'),
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           actions: [
@@ -415,16 +424,17 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
             ],
           ),
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildConfigTab(),
-                  _buildUpdateTab(),
-                  _buildBlacklistTab(),
-                ],
-              ),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildConfigTab(),
+                    _buildUpdateTab(),
+                    _buildBlacklistTab(),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -450,7 +460,15 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
-                onChanged: (value) => setState(() => _hasUnsavedChanges = true),
+                onChanged: (value) {
+                  setState(() {
+                    final parsed = double.tryParse(value);
+                    if (parsed != null) {
+                      _config = _config.copyWith(amountThreshold: parsed);
+                    }
+                    _hasUnsavedChanges = true;
+                  });
+                },
               ),
               const SizedBox(height: 16),
               
@@ -472,6 +490,66 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                         style: const TextStyle(fontSize: 16),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+
+          // 接口配置
+          _buildConfigCard(
+            title: '接口配置',
+            icon: Icons.api,
+            color: Colors.purple,
+            children: [
+              SwitchListTile(
+                title: const Text('启用首页筛选实时接口'),
+                subtitle: const Text('仅影响首页从股票池筛选的操作'),
+                value: _config.enableRealtimeInterface,
+                onChanged: (value) async {
+                  setState(() {
+                    _config = _config.copyWith(enableRealtimeInterface: value);
+                  });
+                  try {
+                    await StockPoolConfigService.setRealtimeInterfaceEnabled(value);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(value ? '已开启首页实时接口' : '已关闭首页实时接口'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('更新实时接口配置失败: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      setState(() {
+                        _config = _config.copyWith(enableRealtimeInterface: !value);
+                      });
+                    }
+                  }
+                },
+                activeColor: Colors.purple[400],
+              ),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.purple[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple[100]!),
+                ),
+                child: Text(
+                  '开启后，当筛选日期为当天且在交易日 09:30 之后进行首页筛选时，将使用 iFinD 实时接口；股票池更新逻辑不受影响。',
+                  style: TextStyle(
+                    color: Colors.purple[700],
+                    fontSize: 12,
                   ),
                 ),
               ),
@@ -628,7 +706,10 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                       ? DateFormat('yyyy-MM-dd HH:mm').format(_poolInfo['lastUpdateTime'])
                       : '从未更新'),
                   _buildInfoRow('数据状态', _poolInfo['isValid'] == true ? '有效' : '已过期'),
-                  _buildInfoRow('成交额阈值', '${_poolInfo['threshold'] ?? 5.0}亿元'),
+                  _buildInfoRow(
+                    '成交额阈值',
+                    '≥ ${((_poolInfo['threshold'] is num) ? (_poolInfo['threshold'] as num).toDouble() : 5.0).toStringAsFixed(2)}亿元',
+                  ),
                   _buildInfoRow('筛选日期', _poolInfo['targetDate'] != null 
                       ? DateFormat('yyyy-MM-dd').format(_poolInfo['targetDate'])
                       : DateFormat('yyyy-MM-dd').format(_config.selectedDate)),
@@ -677,6 +758,7 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                   ] else ...[
                     _buildConfigInfoRow('总市值筛选', '未启用'),
                   ],
+                  _buildConfigInfoRow('首页实时接口', _config.enableRealtimeInterface ? '已启用（仅影响首页筛选）' : '未启用'),
                   _buildConfigInfoRow('自动更新', _config.autoUpdate ? '已启用 (每${_config.updateInterval}小时)' : '未启用'),
                 ],
               ),
