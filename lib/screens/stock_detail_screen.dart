@@ -28,6 +28,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   String? _errorMessage;
   int _selectedDays = 60; // 默认显示60天
   int _subChartCount = 1; // 默认显示1个副图
+  String _selectedChartType = 'daily'; // 默认选择日K，可选：daily(日K), weekly(周K), monthly(月K)
 
   @override
   void initState() {
@@ -83,11 +84,21 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     });
 
     try {
-      // 根据选择的自然日数，从当前日期倒退N个自然日
-      // 为了确保20日均线能从最左侧开始显示，需要多请求足够的数据
-      // 通常30个自然日约等于21-22个交易日，为了安全，我们请求更多数据
-      // 确保有足够的交易日数据：请求_selectedDays * 1.5 + 20个自然日
-      final requestDays = (_selectedDays * 1.5).round() + 20;
+      // 根据图表类型调整请求天数
+      // 日K：正常计算
+      // 周K：需要更多自然日（一周约5个交易日，60个交易日约需要84个自然日）
+      // 月K：需要更多自然日（一月约22个交易日，60个交易日约需要90个自然日）
+      int requestDays;
+      if (_selectedChartType == 'weekly') {
+        // 周K：每个数据点代表一周，60个数据点需要约420个自然日（60周）
+        requestDays = (_selectedDays * 7).round() + 30;
+      } else if (_selectedChartType == 'monthly') {
+        // 月K：每个数据点代表一月，60个数据点需要约1800个自然日（60个月，约5年）
+        requestDays = (_selectedDays * 30).round() + 60;
+      } else {
+        // 日K：正常计算
+        requestDays = (_selectedDays * 1.5).round() + 20;
+      }
       
       // 并行加载K线数据和MACD数据
       final DateTime endDate = DateTime.now();
@@ -95,17 +106,21 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       final String startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
       final String endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
       
+      // 根据图表类型调用不同的API
       final results = await Future.wait([
         StockApiService.getKlineData(
           tsCode: widget.stockInfo.tsCode,
-          kLineType: 'daily',
+          kLineType: _selectedChartType, // 使用选择的图表类型
           days: requestDays,
         ),
-        StockApiService.getMacdData(
-          tsCode: widget.stockInfo.tsCode,
-          startDate: startDateStr,
-          endDate: endDateStr,
-        ),
+        // MACD数据目前只支持日K，周K和月K暂时不加载MACD
+        _selectedChartType == 'daily' 
+          ? StockApiService.getMacdData(
+              tsCode: widget.stockInfo.tsCode,
+              startDate: startDateStr,
+              endDate: endDateStr,
+            )
+          : Future.value(<MacdData>[]), // 周K和月K暂时返回空MACD数据
       ]);
 
       final klineDataList = results[0] as List<KlineData>;
@@ -348,10 +363,28 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   Widget _buildChartTypeButton(String label, bool isSelected) {
     return GestureDetector(
       onTap: () {
-        // 暂时只支持日K，周K和月K功能待实现
+        // 根据标签确定图表类型
+        String chartType;
         if (label == '日K') {
-          // 日K已选中，无需操作
+          chartType = 'daily';
+        } else if (label == '周K') {
+          chartType = 'weekly';
+        } else if (label == '月K') {
+          chartType = 'monthly';
+        } else {
+          return; // 未知类型，不处理
         }
+        
+        // 如果点击的是已选中的类型，不执行任何操作
+        if (_selectedChartType == chartType) {
+          return;
+        }
+        
+        // 切换图表类型并重新加载数据
+        setState(() {
+          _selectedChartType = chartType;
+        });
+        _loadKlineData();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -411,11 +444,11 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
               Expanded(
                 child: Row(
                   children: [
-                    _buildChartTypeButton('日K', true), // 默认选择日K
+                    _buildChartTypeButton('日K', _selectedChartType == 'daily'),
                     const SizedBox(width: 4),
-                    _buildChartTypeButton('周K', false),
+                    _buildChartTypeButton('周K', _selectedChartType == 'weekly'),
                     const SizedBox(width: 4),
-                    _buildChartTypeButton('月K', false),
+                    _buildChartTypeButton('月K', _selectedChartType == 'monthly'),
                   ],
                 ),
               ),

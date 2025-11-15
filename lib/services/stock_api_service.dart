@@ -984,6 +984,8 @@ class StockApiService {
         "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
       };
 
+      print('📡 请求${kLineType}K线数据: $tsCode, 日期范围: $formattedStartDate - $formattedEndDate');
+
       final response = await http.post(
         Uri.parse(baseUrl),
         headers: {
@@ -1019,14 +1021,22 @@ class StockApiService {
             // 按交易日期排序，确保时间顺序正确（从早到晚）
             klineDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
             
+            print('✅ 获取${kLineType}K线数据成功: ${klineDataList.length}条记录');
             return klineDataList;
           } else {
+            print('⚠️ ${kLineType}K线API返回数据为空');
             return [];
           }
         } else {
+          print('❌ ${kLineType}K线API返回错误: code=${responseData['code']}, msg=${responseData['msg']}');
+          // 如果是API不支持的错误，打印更详细的提示
+          if (responseData['code'] != null && responseData['code'] != 0) {
+            print('💡 提示: 如果错误码表示API不存在，可能需要检查Tushare是否支持${kLineType}类型的K线数据');
+          }
           return [];
         }
       } else {
+        print('❌ ${kLineType}K线HTTP请求失败: ${response.statusCode}');
         return [];
       }
     } catch (e) {
