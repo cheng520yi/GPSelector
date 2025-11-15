@@ -5,6 +5,7 @@ import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
 import '../services/stock_api_service.dart';
+import '../services/favorite_stock_service.dart';
 import '../widgets/kline_chart_widget.dart';
 
 class StockDetailScreen extends StatefulWidget {
@@ -31,11 +32,31 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   String _selectedChartType = 'daily'; // 默认选择日K，可选：daily(日K), weekly(周K), monthly(月K)
   KlineData? _selectedKlineData; // 选中的K线数据
   Map<String, double?>? _selectedMaValues; // 选中日期的均线值
+  bool _isFavorite = false; // 是否已关注
 
   @override
   void initState() {
     super.initState();
+    _checkFavoriteStatus();
     _initializeData();
+  }
+
+  Future<void> _checkFavoriteStatus() async {
+    final isFavorite = await FavoriteStockService.isFavorite(widget.stockInfo.tsCode);
+    setState(() {
+      _isFavorite = isFavorite;
+    });
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_isFavorite) {
+      await FavoriteStockService.removeFavorite(widget.stockInfo.tsCode);
+    } else {
+      await FavoriteStockService.addFavorite(widget.stockInfo);
+    }
+    setState(() {
+      _isFavorite = !_isFavorite;
+    });
   }
 
   // 初始化数据：先加载设置，再加载K线数据
@@ -685,6 +706,16 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       appBar: AppBar(
         title: Text(widget.stockInfo.name),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isFavorite ? Icons.star : Icons.star_border,
+              color: _isFavorite ? Colors.amber : null,
+            ),
+            onPressed: _toggleFavorite,
+            tooltip: _isFavorite ? '取消关注' : '关注',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
