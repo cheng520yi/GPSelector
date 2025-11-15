@@ -251,7 +251,60 @@ class StockApiService {
     return selectedDate;
   }
 
-  // 获取实时K线数据（单个股票）
+  // 获取单个股票的实时K线数据（使用iFinD接口）
+  static Future<KlineData?> getSingleStockRealTimeData({
+    required String tsCode,
+  }) async {
+    try {
+      final result = await getIFinDRealTimeData(tsCodes: [tsCode]);
+      if (result.isNotEmpty && result.containsKey(tsCode)) {
+        return result[tsCode];
+      }
+      return null;
+    } catch (e) {
+      print('❌ 获取单个股票实时数据失败: $e');
+      return null;
+    }
+  }
+
+  // 获取最新的交易日数据（可能是今天，也可能是最近的交易日）
+  // 用于月K等需要获取最新交易日数据的场景
+  static Future<KlineData?> getLatestTradingDayData({
+    required String tsCode,
+  }) async {
+    final now = DateTime.now();
+    
+    // 如果今天是交易日且在交易时间内，尝试获取实时数据
+    if (isTradingDay(now) && isWithinRealTimeWindow()) {
+      print('📊 今天是交易日且在交易时间内，尝试获取实时数据...');
+      final realTimeData = await getSingleStockRealTimeData(tsCode: tsCode);
+      if (realTimeData != null) {
+        return realTimeData;
+      }
+    }
+    
+    // 如果无法获取实时数据，尝试获取最近几个交易日的数据
+    print('📊 尝试获取最近交易日的历史数据...');
+    for (int i = 0; i < 10; i++) {
+      final checkDate = now.subtract(Duration(days: i));
+      if (isTradingDay(checkDate)) {
+        final dateStr = DateFormat('yyyyMMdd').format(checkDate);
+        final klineData = await getHistoricalKlineData(
+          tsCode: tsCode,
+          queryDate: checkDate,
+        );
+        if (klineData != null) {
+          print('✅ 找到最新交易日数据: $dateStr');
+          return klineData;
+        }
+      }
+    }
+    
+    print('⚠️ 未能找到最新的交易日数据');
+    return null;
+  }
+
+  // 获取实时K线数据（单个股票）- 保留原方法以兼容
   static Future<KlineData?> getRealTimeKlineData({
     required String tsCode,
   }) async {
@@ -1012,8 +1065,37 @@ class StockApiService {
                 itemMap[fields[i]] = item[i];
               }
               try {
-                klineDataList.add(KlineData.fromJson(itemMap));
+                final klineData = KlineData.fromJson(itemMap);
+                
+                // Tushare API返回的周K和月K成交量单位可能是"股"（需要除以100转换为"手"）
+                // 而日K成交量单位是"手"，所以需要对周K和月K进行单位转换
+                // 检查：如果成交量异常大（可能是单位问题），进行转换
+                double adjustedVol = klineData.vol;
+                if (kLineType == 'weekly' || kLineType == 'monthly') {
+                  // 周K和月K的成交量如果大于日K的100倍，可能是单位问题（股 vs 手）
+                  // 除以100转换为"手"单位，与日K保持一致
+                  adjustedVol = klineData.vol / 100.0;
+                  print('📊 ${kLineType}K成交量单位转换: ${klineData.vol} -> $adjustedVol (除以100)');
+                }
+                
+                // 创建调整后的KlineData
+                final adjustedKlineData = KlineData(
+                  tsCode: klineData.tsCode,
+                  tradeDate: klineData.tradeDate,
+                  open: klineData.open,
+                  high: klineData.high,
+                  low: klineData.low,
+                  close: klineData.close,
+                  preClose: klineData.preClose,
+                  change: klineData.change,
+                  pctChg: klineData.pctChg,
+                  vol: adjustedVol, // 使用调整后的成交量
+                  amount: klineData.amount,
+                );
+                
+                klineDataList.add(adjustedKlineData);
               } catch (e) {
+                print('❌ 解析${kLineType}K线数据失败: $e');
                 // 静默处理解析错误
               }
             }
@@ -1022,6 +1104,9 @@ class StockApiService {
             klineDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
             
             print('✅ 获取${kLineType}K线数据成功: ${klineDataList.length}条记录');
+            if (klineDataList.isNotEmpty && (kLineType == 'weekly' || kLineType == 'monthly')) {
+              print('📊 ${kLineType}K成交量示例: 第一条=${klineDataList.first.vol}, 最后一条=${klineDataList.last.vol}');
+            }
             return klineDataList;
           } else {
             print('⚠️ ${kLineType}K线API返回数据为空');

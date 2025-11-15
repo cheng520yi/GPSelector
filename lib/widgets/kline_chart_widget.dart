@@ -8,6 +8,7 @@ class KlineChartWidget extends StatelessWidget {
   final List<MacdData> macdDataList; // MACD数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量，默认为1（成交量），支持4个副图
+  final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
 
   const KlineChartWidget({
     super.key,
@@ -15,6 +16,7 @@ class KlineChartWidget extends StatelessWidget {
     this.macdDataList = const [],
     this.displayDays,
     this.subChartCount = 1, // 默认1个副图（成交量）
+    this.chartType = 'daily', // 默认日K
   });
 
   @override
@@ -29,6 +31,7 @@ class KlineChartWidget extends StatelessWidget {
         macdDataList: macdDataList,
         displayDays: displayDays,
         subChartCount: subChartCount,
+        chartType: chartType,
       ),
       size: Size.infinite,
     );
@@ -55,6 +58,7 @@ class KlineChartPainter extends CustomPainter {
   final List<MacdData> macdDataList; // MACD数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量
+  final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度）
   static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度）
   static const double topPadding = 0.0; // 顶部padding（设为0，完全占满）
@@ -85,6 +89,7 @@ class KlineChartPainter extends CustomPainter {
     this.macdDataList = const [],
     this.displayDays,
     this.subChartCount = 1,
+    this.chartType = 'daily',
   });
 
   // 计算每个数据点的均线值
@@ -230,6 +235,29 @@ class KlineChartPainter extends CustomPainter {
     // 计算成交量范围
     double maxVolume = visibleData.map((e) => e.vol).reduce(math.max);
     if (maxVolume <= 0) maxVolume = 1.0;
+    
+    // 调试：打印成交量信息
+    if (visibleData.isNotEmpty) {
+      final lastData = visibleData.last;
+      print('📊 成交量计算: 图表类型=$chartType, 可见数据量=${visibleData.length}, 最大成交量=$maxVolume');
+      print('📊 最后一条数据: 日期=${lastData.tradeDate}, 成交量=${lastData.vol}, 占比=${(lastData.vol / maxVolume * 100).toStringAsFixed(2)}%');
+      // 打印所有数据的成交量，用于调试
+      if (visibleData.length <= 10) {
+        print('📊 所有可见数据的成交量:');
+        for (int i = 0; i < visibleData.length; i++) {
+          print('  ${i + 1}. ${visibleData[i].tradeDate}: 成交量=${visibleData[i].vol}');
+        }
+      } else {
+        print('📊 前5条和后5条数据的成交量:');
+        for (int i = 0; i < 5; i++) {
+          print('  ${i + 1}. ${visibleData[i].tradeDate}: 成交量=${visibleData[i].vol}');
+        }
+        print('  ...');
+        for (int i = visibleData.length - 5; i < visibleData.length; i++) {
+          print('  ${i + 1}. ${visibleData[i].tradeDate}: 成交量=${visibleData[i].vol}');
+        }
+      }
+    }
 
     // 绘制K线图背景网格
     _drawKlineGrid(canvas, size, maxPrice, minPrice, klineChartHeight);
@@ -237,11 +265,11 @@ class KlineChartPainter extends CustomPainter {
     // 绘制价格标签
     _drawPriceLabels(canvas, size, maxPrice, minPrice, klineChartHeight);
 
-    // 先绘制均线（在K线下方）
-    _drawMaLines(canvas, size, visibleData, visibleMaPoints, maxPrice, minPrice, chartWidth, klineChartHeight);
-
-    // 再绘制K线（在均线上方）
+    // 先绘制K线（在均线下方）
     _drawCandles(canvas, size, visibleData, maxPrice, minPrice, chartWidth, klineChartHeight);
+
+    // 再绘制均线（在K线上方，确保均线可见）
+    _drawMaLines(canvas, size, visibleData, visibleMaPoints, maxPrice, minPrice, chartWidth, klineChartHeight);
 
     // 绘制副图（固定顺序：第1个=成交量，第2个=MACD，第3、4个=成交量）
     double currentSubChartTop = topPadding + klineChartHeight + chartGap;
@@ -362,16 +390,40 @@ class KlineChartPainter extends CustomPainter {
       final index = (visibleData.length - 1) * i ~/ (labelCount - 1);
       if (index < visibleData.length) {
         final date = visibleData[index].tradeDate;
-        final dateStr = '${date.substring(4, 6)}-${date.substring(6, 8)}';
+        String dateStr;
+        
+        // 根据图表类型格式化日期
+        if (chartType == 'monthly') {
+          // 月K：显示为YYYYMM格式（如202511）
+          dateStr = date.substring(0, 6); // 取前6位：YYYYMM
+        } else {
+          // 日K和周K：显示为MM-DD格式
+          dateStr = '${date.substring(4, 6)}-${date.substring(6, 8)}';
+        }
+        
         textPainter.text = TextSpan(
           text: dateStr,
           style: textStyle,
         );
         textPainter.layout();
         final x = index * candleTotalWidth + dynamicCandleWidth / 2;
+        
+        // 计算标签的x位置
+        double labelX;
+        if (i == 0) {
+          // 第一个标签：紧靠左边框
+          labelX = 0;
+        } else if (i == labelCount - 1) {
+          // 最后一个标签：紧靠右边框
+          labelX = size.width - textPainter.width;
+        } else {
+          // 中间标签：居中显示
+          labelX = x - textPainter.width / 2;
+        }
+        
         textPainter.paint(
           canvas,
-          Offset(x - textPainter.width / 2, size.height - bottomPadding + 4),
+          Offset(labelX, size.height - bottomPadding + 4),
         );
       }
     }
@@ -413,23 +465,16 @@ class KlineChartPainter extends CustomPainter {
 
       // 判断涨跌
       final isRising = data.close >= data.open;
-      final color = isRising ? Colors.red : Colors.green;
+      final color = isRising ? Colors.red[800]! : Colors.green[700]!; // 使用更深的红色和绿色
 
-      // 绘制上下影线
-      final shadowPaint = Paint()
-        ..color = color
-        ..strokeWidth = 1.0;
-      canvas.drawLine(
-        Offset(x, highY),
-        Offset(x, lowY),
-        shadowPaint,
-      );
-
-      // 绘制实体（矩形）
+      // 计算实体位置
       final bodyTop = math.min(openY, closeY);
       final bodyBottom = math.max(openY, closeY);
       final bodyHeight = math.max(bodyBottom - bodyTop, 1.0); // 至少1像素高
 
+      // 绘制实体（矩形）
+      // 绿柱：实心（填充绿色）
+      // 红柱：空心（红色边框，白色内部）
       final bodyPaint = Paint()
         ..color = color
         ..style = PaintingStyle.fill;
@@ -444,20 +489,50 @@ class KlineChartPainter extends CustomPainter {
         bodyPaint,
       );
 
-      // 如果是跌，绘制空心（白色边框）
-      if (!isRising) {
-        final borderPaint = Paint()
+      // 如果是涨（红柱），绘制白色内部矩形实现空心效果
+      // 使用fill模式而不是stroke，确保宽度与绿柱一致
+      if (isRising) {
+        final whitePaint = Paint()
           ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0;
+          ..style = PaintingStyle.fill;
+        
+        // 计算白色矩形的尺寸，向内缩进1像素，实现边框效果
+        final whiteRectWidth = math.max(dynamicCandleWidth - 2.0, 1.0);
+        final whiteRectHeight = math.max(bodyHeight - 2.0, 1.0);
+        final whiteRectLeft = x - dynamicCandleWidth / 2 + 1.0;
+        final whiteRectTop = bodyTop + 1.0;
+        
         canvas.drawRect(
           Rect.fromLTWH(
-            x - dynamicCandleWidth / 2,
-            bodyTop,
-            dynamicCandleWidth,
-            bodyHeight,
+            whiteRectLeft,
+            whiteRectTop,
+            whiteRectWidth,
+            whiteRectHeight,
           ),
-          borderPaint,
+          whitePaint,
+        );
+      }
+
+      // 绘制上下影线 - 在实体之后绘制，确保影线与实体无缝连接
+      final shadowPaint = Paint()
+        ..color = color
+        ..strokeWidth = 1.0;
+      
+      // 上影线：从最高价到实体顶部
+      if (highY < bodyTop) {
+        canvas.drawLine(
+          Offset(x, highY),
+          Offset(x, bodyTop),
+          shadowPaint,
+        );
+      }
+      
+      // 下影线：从实体底部到最低价
+      if (lowY > bodyBottom) {
+        canvas.drawLine(
+          Offset(x, bodyBottom),
+          Offset(x, lowY),
+          shadowPaint,
         );
       }
     }
@@ -490,7 +565,7 @@ class KlineChartPainter extends CustomPainter {
       double chartHeight, double chartWidth) {
     final linePaint = Paint()
       ..color = color
-      ..strokeWidth = 1.5
+      ..strokeWidth = 1.3 // 稍微细一点
       ..style = PaintingStyle.stroke;
 
     // 动态计算K线宽度和间距（与_drawCandles保持一致，确保完全铺满）
@@ -612,10 +687,15 @@ class KlineChartPainter extends CustomPainter {
       // 计算成交量高度
       final volumeHeight = (data.vol / maxVolume) * volumeChartHeight;
       final volumeY = volumeChartTop + volumeChartHeight - volumeHeight;
+      
+      // 调试：打印最后几条数据的绘制信息
+      if (i >= visibleData.length - 3) {
+        print('📊 绘制成交量柱: 索引=$i, 日期=${data.tradeDate}, 成交量=${data.vol}, 高度=$volumeHeight, maxVolume=$maxVolume');
+      }
 
       // 判断涨跌（与K线颜色一致）
       final isRising = data.close >= data.open;
-      final color = isRising ? Colors.red.withOpacity(0.6) : Colors.green.withOpacity(0.6);
+      final color = isRising ? Colors.red.withOpacity(0.6) : Colors.green[700]!.withOpacity(0.6); // 使用更深的绿色
 
       final volumePaint = Paint()
         ..color = color
@@ -770,7 +850,7 @@ class KlineChartPainter extends CustomPainter {
       final macdHeight = (macdValue.abs() / macdRange) * macdChartHeight * 0.5; // 柱状图占一半高度
       final zeroY = macdChartTop + macdChartHeight / 2; // 0值在中间
       
-      final color = macdValue >= 0 ? Colors.red.withOpacity(0.6) : Colors.green.withOpacity(0.6);
+      final color = macdValue >= 0 ? Colors.red.withOpacity(0.6) : Colors.green[700]!.withOpacity(0.6); // 使用更深的绿色
       
       final macdPaint = Paint()
         ..color = color
@@ -843,7 +923,7 @@ class KlineChartPainter extends CustomPainter {
       double chartHeight, double chartTop, double chartWidth) {
     final linePaint = Paint()
       ..color = color
-      ..strokeWidth = 1.5
+      ..strokeWidth = 1.3 // 稍微细一点
       ..style = PaintingStyle.stroke;
 
     // 动态计算K线宽度和间距
