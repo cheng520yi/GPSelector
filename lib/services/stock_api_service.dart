@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
+import '../models/macd_data.dart';
 import 'batch_optimizer.dart';
 import 'log_service.dart';
 import 'console_capture_service.dart';
@@ -16,6 +18,9 @@ class StockApiService {
   
   // iFinD实时行情接口配置
   static const String iFinDBaseUrl = 'https://quantapi.51ifind.com/api/v1/real_time_quotation';
+  
+  // iFinD日期序列接口配置（用于MACD等指标）
+  static const String iFinDDateSequenceUrl = 'https://quantapi.51ifind.com/api/v1/date_sequence';
   
   // TODO: 暂时注释掉动态token刷新相关配置，使用固定token
   // static const String iFinDTokenRefreshUrl = 'https://quantapi.51ifind.com/api/v1/get_access_token';
@@ -1187,5 +1192,350 @@ class StockApiService {
     } catch (e) {
       return {};
     }
+  }
+
+  // 获取MACD指标数据
+  static Future<List<MacdData>> getMacdData({
+    required String tsCode,
+    required String startDate,
+    required String endDate,
+  }) async {
+    try {
+      // 将股票代码转换为iFinD格式（例如：600170.SH）
+      String iFinDCode = tsCode;
+      if (!iFinDCode.contains('.')) {
+        // 如果没有后缀，根据代码判断
+        if (tsCode.startsWith('6')) {
+          iFinDCode = '$tsCode.SH';
+        } else {
+          iFinDCode = '$tsCode.SZ';
+        }
+      }
+
+      // 尝试多种参数组合以获取DIF、DEA、M
+      // 根据iFinD API文档，indiparams第一个参数可能用于指定输出字段
+      // 如果第一个参数格式不对，API可能只返回默认的M值
+      final Map<String, dynamic> requestData = {
+        "codes": iFinDCode,
+        "startdate": startDate,
+        "enddate": endDate,
+        "indipara": [
+          {
+            "indicator": "ths_macd_stock",
+            // 尝试多种参数格式：
+            // 1. 空字符串（默认，可能只返回M值）
+            // 2. "DIF,DEA,M"（尝试指定返回字段）
+            // 3. "1"（可能是指定输出格式的代码）
+            // 参数含义：["输出格式/字段", "长期EMA(26)", "短期EMA(12)", "信号线(9)", "其他参数..."]
+            "indiparams": ["", "26", "12", "9", "1", "0", "100"]
+            // 注意：如果API只返回M值，代码会自动创建DIF和DEA占位数据
+          }
+        ]
+      };
+
+      print('📡 请求MACD数据: $iFinDCode, 日期范围: $startDate - $endDate');
+      
+      final currentToken = getCurrentAccessToken();
+      
+      final response = await http.post(
+        Uri.parse(iFinDDateSequenceUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'access_token': currentToken,
+        },
+        body: json.encode(requestData),
+      );
+
+      print('🔍 MACD HTTP响应状态码: ${response.statusCode}');
+      print('🔍 MACD HTTP响应体（完整）: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        print('🔍 MACD API响应: errorcode=${responseData['errorcode']}, errmsg=${responseData['errmsg']}');
+        
+        if (responseData['errorcode'] == 0 || responseData['errorcode'] == null) {
+          final tables = responseData['tables'];
+          print('🔍 MACD tables数量: ${tables != null ? (tables as List).length : 0}');
+          
+          if (tables != null && tables is List && tables.isNotEmpty) {
+            final table = tables[0];
+            
+            print('🔍 MACD table keys: ${(table as Map).keys.toList()}');
+            
+            // 打印完整的table结构以便调试
+            print('🔍 MACD table完整内容: ${json.encode(table)}');
+            
+            // 根据实际API返回，数据可能在table对象中，也可能在table['table']中
+            Map<String, dynamic>? tableData;
+            if (table['table'] != null) {
+              tableData = table['table'] as Map<String, dynamic>?;
+              print('🔍 使用table[\'table\']');
+            } else {
+              tableData = table as Map<String, dynamic>?;
+              print('🔍 直接使用table');
+            }
+            
+            print('🔍 MACD tableData keys: ${tableData != null ? tableData.keys.toList() : 'null'}');
+            
+            // 打印tableData的所有内容以便调试
+            if (tableData != null) {
+              print('🔍 MACD tableData完整内容: ${json.encode(tableData)}');
+            }
+            
+            // 检查table顶层是否有其他字段包含DIF/DEA
+            if (table is Map) {
+              print('🔍 检查table顶层所有keys: ${table.keys.toList()}');
+              for (var key in table.keys) {
+                if (key.toString().toLowerCase().contains('dif') || 
+                    key.toString().toLowerCase().contains('dea') ||
+                    key.toString().toLowerCase().contains('macd')) {
+                  print('🔍 table顶层发现相关字段: $key = ${table[key].runtimeType}');
+                  if (table[key] is List) {
+                    print('🔍 $key 数组长度: ${(table[key] as List).length}');
+                    if ((table[key] as List).isNotEmpty) {
+                      print('🔍 $key 第一个元素: ${(table[key] as List)[0]}');
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (tableData != null) {
+              List<MacdData> macdDataList = [];
+              
+              // 获取日期数组（可能是'time'或'date'）
+              // 先从tableData获取，如果没有则从table获取
+              final dates = (tableData['time'] as List?) ?? 
+                           (tableData['date'] as List?) ?? 
+                           (table['time'] as List?);
+              print('🔍 日期数组: ${dates?.length ?? 0}条, 前3个: ${dates?.take(3).toList()}');
+              
+              // 获取MACD指标数据
+              // 根据iFinD API，ths_macd_stock可能是一个数组，包含MACD值
+              // DIF、DEA、M可能分别在ths_macd_stock_DIF、ths_macd_stock_DEA、ths_macd_stock_M中
+              final macdIndicator = tableData['ths_macd_stock'];
+              
+              List? difs;
+              List? deas;
+              List? macds;
+              
+              print('🔍 MACD indicator类型: ${macdIndicator.runtimeType}');
+              
+              // 首先尝试从tableData中直接获取DIF、DEA、M数组
+              difs = tableData['ths_macd_stock_DIF'] as List?;
+              deas = tableData['ths_macd_stock_DEA'] as List?;
+              macds = tableData['ths_macd_stock_M'] as List?;
+              print('🔍 直接获取: DIF=${difs?.length}, DEA=${deas?.length}, M=${macds?.length}');
+              
+              // 如果直接获取失败，尝试从ths_macd_stock对象/数组中提取
+              if ((difs == null || deas == null || macds == null) && macdIndicator != null) {
+                if (macdIndicator is Map) {
+                  print('🔍 MACD indicator keys: ${macdIndicator.keys.toList()}');
+                  difs = difs ?? macdIndicator['DIF'] as List? ?? 
+                                macdIndicator['dif'] as List? ?? 
+                                macdIndicator['ths_macd_stock_DIF'] as List?;
+                  deas = deas ?? macdIndicator['DEA'] as List? ?? 
+                                macdIndicator['dea'] as List? ?? 
+                                macdIndicator['ths_macd_stock_DEA'] as List?;
+                  macds = macds ?? macdIndicator['M'] as List? ?? 
+                                 macdIndicator['macd'] as List? ?? 
+                                 macdIndicator['m'] as List? ?? 
+                                 macdIndicator['ths_macd_stock_M'] as List?;
+                  print('🔍 从Map提取: DIF=${difs?.length}, DEA=${deas?.length}, M=${macds?.length}');
+                  } else if (macdIndicator is List) {
+                  // 如果ths_macd_stock是数组
+                  print('🔍 MACD指标是数组类型，长度: ${macdIndicator.length}');
+                  if (macdIndicator.isNotEmpty) {
+                    print('🔍 MACD数组第一个元素类型: ${macdIndicator[0].runtimeType}');
+                    print('🔍 MACD数组第一个元素: ${macdIndicator[0]}');
+                    
+                    // 如果数组元素是double，说明这是MACD值（M值）
+                    if (macdIndicator[0] is double) {
+                      macds = macds ?? macdIndicator;
+                      print('🔍 识别为MACD值数组（M值），长度: ${macds.length}');
+                      
+                      // 如果只有M值，尝试从tableData中查找DIF和DEA
+                      // 可能字段名是 ths_macd_stock_DIF, ths_macd_stock_DEA
+                      if (difs == null) {
+                        // 尝试查找所有可能的DIF字段
+                        for (var key in tableData.keys) {
+                          if (key.toString().toLowerCase().contains('dif') && 
+                              !key.toString().toLowerCase().contains('macd')) {
+                            difs = tableData[key] as List?;
+                            print('🔍 找到DIF字段: $key, 长度: ${difs?.length}');
+                            break;
+                          }
+                        }
+                      }
+                      if (deas == null) {
+                        // 尝试查找所有可能的DEA字段
+                        for (var key in tableData.keys) {
+                          if (key.toString().toLowerCase().contains('dea') && 
+                              !key.toString().toLowerCase().contains('macd')) {
+                            deas = tableData[key] as List?;
+                            print('🔍 找到DEA字段: $key, 长度: ${deas?.length}');
+                            break;
+                          }
+                        }
+                      }
+                    } else if (macdIndicator[0] is List) {
+                      // 数组元素是数组，可能是[DIF, DEA, M]的格式
+                      print('🔍 MACD数组元素是数组类型，第一个元素长度: ${(macdIndicator[0] as List).length}');
+                      List<dynamic> difsList = [];
+                      List<dynamic> deasList = [];
+                      List<dynamic> macdsList = [];
+                      for (var item in macdIndicator) {
+                        if (item is List && item.length >= 3) {
+                          difsList.add(item[0] ?? 0.0);
+                          deasList.add(item[1] ?? 0.0);
+                          macdsList.add(item[2] ?? 0.0);
+                        }
+                      }
+                      difs = difs ?? difsList;
+                      deas = deas ?? deasList;
+                      macds = macds ?? macdsList;
+                      print('🔍 从嵌套数组提取: DIF=${difs.length}, DEA=${deas.length}, M=${macds.length}');
+                    }
+                  }
+                }
+              }
+              
+              // 如果仍然没有找到DIF和DEA，尝试从table顶层获取
+              if ((difs == null || deas == null) && table is Map) {
+                difs = difs ?? table['ths_macd_stock_DIF'] as List?;
+                deas = deas ?? table['ths_macd_stock_DEA'] as List?;
+                print('🔍 从table顶层获取: DIF=${difs?.length}, DEA=${deas?.length}');
+              }
+              
+              // 打印tableData的所有keys以便调试
+              if (tableData != null) {
+                print('🔍 tableData所有keys: ${tableData.keys.toList()}');
+                // 查找所有包含DIF、DEA、MACD的字段
+                for (var key in tableData.keys) {
+                  if (key.toString().toLowerCase().contains('dif') || 
+                      key.toString().toLowerCase().contains('dea') || 
+                      key.toString().toLowerCase().contains('macd')) {
+                    print('🔍 发现相关字段: $key = ${tableData[key].runtimeType}');
+                  }
+                }
+              }
+              
+              print('🔍 MACD数据: dates=${dates?.length}, difs=${difs?.length}, deas=${deas?.length}, macds=${macds?.length}');
+              
+              // 如果数据仍然为空，尝试从table['table']['ths_macd_stock']中获取
+              if ((difs == null || deas == null || macds == null) && table['table'] != null) {
+                final nestedTable = table['table'] as Map?;
+                if (nestedTable != null) {
+                  final nestedMacdIndicator = nestedTable['ths_macd_stock'];
+                  print('🔍 尝试从嵌套table获取MACD数据: ${nestedMacdIndicator.runtimeType}');
+                  
+                  if (nestedMacdIndicator is Map) {
+                    difs = nestedMacdIndicator['DIF'] as List? ?? 
+                           nestedMacdIndicator['dif'] as List? ?? 
+                           nestedMacdIndicator['ths_macd_stock_DIF'] as List?;
+                    deas = nestedMacdIndicator['DEA'] as List? ?? 
+                           nestedMacdIndicator['dea'] as List? ?? 
+                           nestedMacdIndicator['ths_macd_stock_DEA'] as List?;
+                    macds = nestedMacdIndicator['M'] as List? ?? 
+                            nestedMacdIndicator['macd'] as List? ?? 
+                            nestedMacdIndicator['m'] as List? ?? 
+                            nestedMacdIndicator['ths_macd_stock_M'] as List?;
+                    print('🔍 从嵌套table获取: DIF=${difs?.length}, DEA=${deas?.length}, M=${macds?.length}');
+                  }
+                }
+              }
+              
+              // 如果只有M值（macds）但没有DIF和DEA，检查是否可能是嵌套数组结构
+              if (dates != null && macds != null && (difs == null || deas == null)) {
+                print('⚠️ 只获取到MACD值（M），缺少DIF和DEA');
+                print('🔍 检查ths_macd_stock数组结构，长度: ${macds.length}');
+                print('🔍 MACD值示例（前5个）: ${macds.take(5).toList()}');
+                
+                // 检查ths_macd_stock是否可能是嵌套数组（每个元素包含[DIF, DEA, M]）
+                final macdIndicator = tableData['ths_macd_stock'];
+                if (macdIndicator is List && macdIndicator.isNotEmpty) {
+                  final firstElement = macdIndicator[0];
+                  print('🔍 ths_macd_stock第一个元素类型: ${firstElement.runtimeType}');
+                  print('🔍 ths_macd_stock第一个元素值: $firstElement');
+                  
+                  // 如果第一个元素是List，说明是嵌套数组
+                  if (firstElement is List && firstElement.length >= 3) {
+                    print('✅ 发现嵌套数组结构！每个元素包含${firstElement.length}个值');
+                    List<dynamic> difsList = [];
+                    List<dynamic> deasList = [];
+                    List<dynamic> macdsList = [];
+                    for (var item in macdIndicator) {
+                      if (item is List && item.length >= 3) {
+                        difsList.add(item[0] ?? 0.0);
+                        deasList.add(item[1] ?? 0.0);
+                        macdsList.add(item[2] ?? 0.0);
+                      }
+                    }
+                    difs = difsList;
+                    deas = deasList;
+                    macds = macdsList;
+                    print('✅ 从嵌套数组提取: DIF=${difs.length}, DEA=${deas.length}, M=${macds.length}');
+                  }
+                }
+                
+                // 如果仍然没有DIF和DEA，不进行估算，直接返回空数据
+                if (difs == null || deas == null) {
+                  print('❌ API未提供DIF和DEA数据，无法绘制MACD指标');
+                  print('❌ 请检查API参数或联系API提供商确认如何获取完整的MACD数据（DIF、DEA、M）');
+                  return [];
+                }
+              }
+              
+              if (dates != null && difs != null && deas != null && macds != null) {
+                int length = math.min(
+                  dates.length,
+                  math.min(difs.length, math.min(deas.length, macds.length))
+                );
+                
+                for (int i = 0; i < length; i++) {
+                  try {
+                    final dateStr = dates[i]?.toString() ?? '';
+                    // 将日期格式从yyyy-MM-dd转换为yyyyMMdd
+                    String formattedDate = dateStr;
+                    if (dateStr.contains('-')) {
+                      formattedDate = dateStr.replaceAll('-', '');
+                    }
+                    
+                    final dif = double.tryParse(difs[i]?.toString() ?? '0') ?? 0.0;
+                    final dea = double.tryParse(deas[i]?.toString() ?? '0') ?? 0.0;
+                    final macd = double.tryParse(macds[i]?.toString() ?? '0') ?? 0.0;
+                    
+                    macdDataList.add(MacdData(
+                      tsCode: tsCode,
+                      tradeDate: formattedDate,
+                      dif: dif,
+                      dea: dea,
+                      macd: macd,
+                    ));
+                  } catch (e) {
+                    print('❌ 解析MACD数据项失败: $e');
+                  }
+                }
+                
+                // 按交易日期排序
+                macdDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+                
+                print('✅ MACD数据获取成功: ${macdDataList.length}条记录');
+                return macdDataList;
+              }
+            }
+          }
+        } else {
+          print('❌ MACD API返回错误: ${responseData['errorcode']} - ${responseData['errmsg']}');
+        }
+      } else {
+        print('❌ MACD HTTP请求失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 获取MACD数据异常: $e');
+    }
+    
+    return [];
   }
 }

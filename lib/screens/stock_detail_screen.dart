@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
+import '../models/macd_data.dart';
 import '../services/stock_api_service.dart';
 import '../widgets/kline_chart_widget.dart';
 
@@ -22,6 +23,7 @@ class StockDetailScreen extends StatefulWidget {
 
 class _StockDetailScreenState extends State<StockDetailScreen> {
   List<KlineData> _klineDataList = [];
+  List<MacdData> _macdDataList = [];
   bool _isLoading = true;
   String? _errorMessage;
   int _selectedDays = 60; // 默认显示60天
@@ -86,19 +88,46 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       // 通常30个自然日约等于21-22个交易日，为了安全，我们请求更多数据
       // 确保有足够的交易日数据：请求_selectedDays * 1.5 + 20个自然日
       final requestDays = (_selectedDays * 1.5).round() + 20;
-      final klineDataList = await StockApiService.getKlineData(
-        tsCode: widget.stockInfo.tsCode,
-        kLineType: 'daily',
-        days: requestDays, // 多请求数据，确保有足够的交易日和20日均线从最左侧开始显示
-      );
+      
+      // 并行加载K线数据和MACD数据
+      final DateTime endDate = DateTime.now();
+      final DateTime startDate = endDate.subtract(Duration(days: requestDays));
+      final String startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final String endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+      
+      final results = await Future.wait([
+        StockApiService.getKlineData(
+          tsCode: widget.stockInfo.tsCode,
+          kLineType: 'daily',
+          days: requestDays,
+        ),
+        StockApiService.getMacdData(
+          tsCode: widget.stockInfo.tsCode,
+          startDate: startDateStr,
+          endDate: endDateStr,
+        ),
+      ]);
+
+      final klineDataList = results[0] as List<KlineData>;
+      final macdDataList = results[1] as List<MacdData>;
 
       // 数据已经按时间排序，直接使用
       // 确保数据按时间正序排列（从早到晚）
       final sortedData = klineDataList.toList()
         ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+      
+      final sortedMacdData = macdDataList.toList()
+        ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+
+      print('✅ K线数据: ${sortedData.length}条');
+      print('✅ MACD数据: ${sortedMacdData.length}条');
+      if (sortedMacdData.isNotEmpty) {
+        print('✅ MACD数据示例: 日期=${sortedMacdData.first.tradeDate}, DIF=${sortedMacdData.first.dif}, DEA=${sortedMacdData.first.dea}, MACD=${sortedMacdData.first.macd}');
+      }
 
       setState(() {
         _klineDataList = sortedData;
+        _macdDataList = sortedMacdData;
         _isLoading = false;
       });
     } catch (e) {
@@ -404,6 +433,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
             height: 500,
             child: KlineChartWidget(
               klineDataList: _klineDataList,
+              macdDataList: _macdDataList,
               displayDays: _selectedDays, // 只显示选择的天数，但均线计算用全部数据
               subChartCount: _subChartCount, // 显示选择的副图数量
             ),

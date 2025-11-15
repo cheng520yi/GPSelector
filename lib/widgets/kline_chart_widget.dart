@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../models/kline_data.dart';
+import '../models/macd_data.dart';
 
 class KlineChartWidget extends StatelessWidget {
   final List<KlineData> klineDataList;
+  final List<MacdData> macdDataList; // MACD数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量，默认为1（成交量），支持4个副图
 
   const KlineChartWidget({
     super.key,
     required this.klineDataList,
+    this.macdDataList = const [],
     this.displayDays,
     this.subChartCount = 1, // 默认1个副图（成交量）
   });
@@ -23,6 +26,7 @@ class KlineChartWidget extends StatelessWidget {
     return CustomPaint(
       painter: KlineChartPainter(
         klineDataList: klineDataList,
+        macdDataList: macdDataList,
         displayDays: displayDays,
         subChartCount: subChartCount,
       ),
@@ -48,6 +52,7 @@ class _MaPoint {
 
 class KlineChartPainter extends CustomPainter {
   final List<KlineData> klineDataList;
+  final List<MacdData> macdDataList; // MACD数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度）
@@ -77,6 +82,7 @@ class KlineChartPainter extends CustomPainter {
 
   KlineChartPainter({
     required this.klineDataList,
+    this.macdDataList = const [],
     this.displayDays,
     this.subChartCount = 1,
   });
@@ -237,11 +243,22 @@ class KlineChartPainter extends CustomPainter {
     // 再绘制K线（在均线上方）
     _drawCandles(canvas, size, visibleData, maxPrice, minPrice, chartWidth, klineChartHeight);
 
-    // 绘制副图（成交量图表，支持多个）
+    // 绘制副图（固定顺序：第1个=成交量，第2个=MACD，第3、4个=成交量）
     double currentSubChartTop = topPadding + klineChartHeight + chartGap;
+    print('🔍 开始绘制副图: subChartCount=$subChartCount, macdDataList.length=${macdDataList.length}');
     for (int i = 0; i < subChartCount; i++) {
-      _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
-      _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
+      print('🔍 绘制第${i + 1}个副图: i=$i');
+      if (i == 1 && macdDataList.isNotEmpty) {
+        // 第二个副图（索引1）显示MACD指标
+        print('✅ 绘制MACD图表（第2个副图）');
+        _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
+        _drawMacdLabels(canvas, size, macdDataList, currentSubChartTop, subChartHeight);
+      } else {
+        // 第1、3、4个副图显示成交量
+        print('📊 绘制成交量图表（第${i + 1}个副图）');
+        _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
+        _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
+      }
       currentSubChartTop += subChartHeight + chartGap;
     }
 
@@ -644,10 +661,332 @@ class KlineChartPainter extends CustomPainter {
   }
 
 
+  // 绘制MACD图表
+  void _drawMacdChart(Canvas canvas, Size size, List<KlineData> visibleData,
+      List<MacdData> macdDataList, double chartWidth, double macdChartTop, double macdChartHeight) {
+    if (macdDataList.isEmpty || visibleData.isEmpty) {
+      print('⚠️ MACD图表绘制跳过: macdDataList=${macdDataList.length}, visibleData=${visibleData.length}');
+      return;
+    }
+
+    // 创建日期到MACD数据的映射
+    Map<String, MacdData> macdMap = {};
+    for (var macd in macdDataList) {
+      macdMap[macd.tradeDate] = macd;
+    }
+
+    // 获取可见数据对应的MACD数据
+    List<MacdData> visibleMacdData = [];
+    int matchedCount = 0;
+    int unmatchedCount = 0;
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null) {
+        visibleMacdData.add(macd);
+        matchedCount++;
+      } else {
+        unmatchedCount++;
+        if (unmatchedCount <= 3) {
+          print('⚠️ 日期不匹配: K线日期=${kline.tradeDate}, MACD数据日期=${macdMap.keys.take(3).toList()}');
+        }
+      }
+    }
+
+    print('🔍 MACD可见数据: ${visibleMacdData.length}/${visibleData.length} (匹配:$matchedCount, 不匹配:$unmatchedCount)');
+    if (visibleMacdData.isNotEmpty) {
+      print('🔍 MACD数据示例: 日期=${visibleMacdData.first.tradeDate}, DIF=${visibleMacdData.first.dif}, DEA=${visibleMacdData.first.dea}, MACD=${visibleMacdData.first.macd}');
+    }
+
+    if (visibleMacdData.isEmpty) {
+      print('⚠️ MACD可见数据为空');
+      return;
+    }
+
+    // 计算MACD值的范围
+    double maxMacd = visibleMacdData.map((e) => math.max(e.dif, math.max(e.dea, e.macd))).reduce(math.max);
+    double minMacd = visibleMacdData.map((e) => math.min(e.dif, math.min(e.dea, e.macd))).reduce(math.min);
+    
+    // 确保范围包含0
+    maxMacd = math.max(maxMacd.abs(), minMacd.abs());
+    minMacd = -maxMacd;
+    
+    if (maxMacd == minMacd) {
+      maxMacd = 1.0;
+      minMacd = -1.0;
+    }
+
+    final macdRange = maxMacd - minMacd;
+    
+    print('🔍 MACD范围: min=$minMacd, max=$maxMacd, range=$macdRange');
+
+    // 绘制MACD网格线（0轴和水平线）
+    final gridPaint = Paint()
+      ..color = Colors.grey[300]!
+      ..strokeWidth = 0.5;
+    
+    // 绘制0轴（中间线）
+    final zeroY = macdChartTop + macdChartHeight / 2;
+    canvas.drawLine(
+      Offset(0, zeroY),
+      Offset(chartWidth, zeroY),
+      gridPaint,
+    );
+    
+    // 绘制其他水平网格线
+    for (int i = 1; i <= 2; i++) {
+      final y = macdChartTop + macdChartHeight * i / 4;
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(chartWidth, y),
+        gridPaint,
+      );
+    }
+
+    // 动态计算K线宽度和间距（与_drawCandles保持一致）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    
+    if (visibleData.length > 0) {
+      if (visibleData.length == 1) {
+        dynamicCandleWidth = chartWidth;
+        dynamicCandleSpacing = 0;
+      } else {
+        final availableWidthPerCandle = chartWidth / visibleData.length;
+        final totalRatio = candleWidth + candleSpacing;
+        dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+        dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+      }
+    }
+    
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    // 绘制MACD柱状图（M值）
+    for (int i = 0; i < visibleMacdData.length; i++) {
+      final macd = visibleMacdData[i];
+      final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+      
+      // 计算MACD柱状图的高度和位置
+      final macdValue = macd.macd;
+      final macdHeight = (macdValue.abs() / macdRange) * macdChartHeight * 0.5; // 柱状图占一半高度
+      final zeroY = macdChartTop + macdChartHeight / 2; // 0值在中间
+      
+      final color = macdValue >= 0 ? Colors.red.withOpacity(0.6) : Colors.green.withOpacity(0.6);
+      
+      final macdPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+      
+      if (macdValue >= 0) {
+        // 正值，向上绘制
+        canvas.drawRect(
+          Rect.fromLTWH(
+            x - dynamicCandleWidth / 2,
+            zeroY - macdHeight,
+            dynamicCandleWidth,
+            macdHeight,
+          ),
+          macdPaint,
+        );
+      } else {
+        // 负值，向下绘制
+        canvas.drawRect(
+          Rect.fromLTWH(
+            x - dynamicCandleWidth / 2,
+            zeroY,
+            dynamicCandleWidth,
+            macdHeight,
+          ),
+          macdPaint,
+        );
+      }
+    }
+
+    // 绘制DIF线（黑色）- 检查是否有非零的有效数据
+    bool hasValidDif = visibleMacdData.any((m) => !m.dif.isNaN && !m.dif.isInfinite && m.dif != 0.0);
+    if (hasValidDif) {
+      print('🔍 开始绘制DIF线，有效数据点: ${visibleMacdData.where((m) => !m.dif.isNaN && !m.dif.isInfinite && m.dif != 0.0).length}');
+      _drawMacdLine(canvas, visibleMacdData, (m) => m.dif, Colors.black, 
+          minMacd, maxMacd, macdRange, macdChartHeight, macdChartTop, chartWidth);
+    } else {
+      print('⚠️ 没有有效的DIF数据（所有值都是0、NaN或Infinite）');
+      // 打印DIF值范围以便调试
+      if (visibleMacdData.isNotEmpty) {
+        final difValues = visibleMacdData.map((m) => m.dif).where((v) => !v.isNaN && !v.isInfinite).toList();
+        if (difValues.isNotEmpty) {
+          print('🔍 DIF值范围: min=${difValues.reduce((a, b) => a < b ? a : b)}, max=${difValues.reduce((a, b) => a > b ? a : b)}');
+        }
+      }
+    }
+    
+    // 绘制DEA线（黄色/橙色）- 检查是否有非零的有效数据
+    bool hasValidDea = visibleMacdData.any((m) => !m.dea.isNaN && !m.dea.isInfinite && m.dea != 0.0);
+    if (hasValidDea) {
+      print('🔍 开始绘制DEA线，有效数据点: ${visibleMacdData.where((m) => !m.dea.isNaN && !m.dea.isInfinite && m.dea != 0.0).length}');
+      _drawMacdLine(canvas, visibleMacdData, (m) => m.dea, Colors.orange, 
+          minMacd, maxMacd, macdRange, macdChartHeight, macdChartTop, chartWidth);
+    } else {
+      print('⚠️ 没有有效的DEA数据（所有值都是0、NaN或Infinite）');
+      // 打印DEA值范围以便调试
+      if (visibleMacdData.isNotEmpty) {
+        final deaValues = visibleMacdData.map((m) => m.dea).where((v) => !v.isNaN && !v.isInfinite).toList();
+        if (deaValues.isNotEmpty) {
+          print('🔍 DEA值范围: min=${deaValues.reduce((a, b) => a < b ? a : b)}, max=${deaValues.reduce((a, b) => a > b ? a : b)}');
+        }
+      }
+    }
+  }
+
+  // 绘制MACD线（DIF或DEA）
+  void _drawMacdLine(Canvas canvas, List<MacdData> macdDataList,
+      double Function(MacdData) getValue, Color color,
+      double minMacd, double maxMacd, double macdRange,
+      double chartHeight, double chartTop, double chartWidth) {
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    // 动态计算K线宽度和间距
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    
+    if (macdDataList.length > 0) {
+      if (macdDataList.length == 1) {
+        dynamicCandleWidth = chartWidth;
+        dynamicCandleSpacing = 0;
+      } else {
+        final availableWidthPerCandle = chartWidth / macdDataList.length;
+        final totalRatio = candleWidth + candleSpacing;
+        dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+        dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+      }
+    }
+    
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    // 收集所有有效的点
+    List<Offset> validPoints = [];
+    for (int i = 0; i < macdDataList.length; i++) {
+      final value = getValue(macdDataList[i]);
+      if (!value.isNaN && !value.isInfinite) {
+        final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+        final y = chartTop + (maxMacd - value) / macdRange * chartHeight;
+        validPoints.add(Offset(x, y));
+      }
+    }
+
+    print('🔍 MACD线条有效点数: ${validPoints.length}, 数据长度: ${macdDataList.length}');
+
+    if (validPoints.length < 2) {
+      print('⚠️ MACD线条点数不足，无法绘制');
+      return;
+    }
+
+    // 使用平滑曲线连接点
+    final path = Path();
+    path.moveTo(validPoints[0].dx, validPoints[0].dy);
+
+    for (int i = 1; i < validPoints.length; i++) {
+      if (i == 1) {
+        // 第一个点，使用二次贝塞尔曲线
+        final controlPoint = Offset(
+          (validPoints[i - 1].dx + validPoints[i].dx) / 2,
+          (validPoints[i - 1].dy + validPoints[i].dy) / 2,
+        );
+        path.quadraticBezierTo(
+          controlPoint.dx,
+          controlPoint.dy,
+          validPoints[i].dx,
+          validPoints[i].dy,
+        );
+      } else if (i == validPoints.length - 1) {
+        // 最后一个点，使用二次贝塞尔曲线
+        final controlPoint = Offset(
+          (validPoints[i - 1].dx + validPoints[i].dx) / 2,
+          (validPoints[i - 1].dy + validPoints[i].dy) / 2,
+        );
+        path.quadraticBezierTo(
+          controlPoint.dx,
+          controlPoint.dy,
+          validPoints[i].dx,
+          validPoints[i].dy,
+        );
+      } else {
+        // 中间点，使用三次贝塞尔曲线
+        final prevPoint = validPoints[i - 1];
+        final currentPoint = validPoints[i];
+        final nextPoint = validPoints[i + 1];
+        
+        final cp1 = Offset(
+          (prevPoint.dx + currentPoint.dx) / 2,
+          (prevPoint.dy + currentPoint.dy) / 2,
+        );
+        final cp2 = Offset(
+          (currentPoint.dx + nextPoint.dx) / 2,
+          (currentPoint.dy + nextPoint.dy) / 2,
+        );
+        
+        path.cubicTo(
+          cp1.dx, cp1.dy,
+          cp2.dx, cp2.dy,
+          currentPoint.dx, currentPoint.dy,
+        );
+      }
+    }
+
+    canvas.drawPath(path, linePaint);
+  }
+
+  // 绘制MACD标签
+  void _drawMacdLabels(Canvas canvas, Size size, List<MacdData> macdDataList,
+      double macdChartTop, double macdChartHeight) {
+    if (macdDataList.isEmpty) return;
+
+    // 计算MACD值的范围
+    double maxMacd = macdDataList.map((e) => math.max(e.dif, math.max(e.dea, e.macd))).reduce(math.max);
+    double minMacd = macdDataList.map((e) => math.min(e.dif, math.min(e.dea, e.macd))).reduce(math.min);
+    
+    // 确保范围包含0
+    maxMacd = math.max(maxMacd.abs(), minMacd.abs());
+    minMacd = -maxMacd;
+    
+    if (maxMacd == minMacd) {
+      maxMacd = 1.0;
+      minMacd = -1.0;
+    }
+
+    final textStyle = TextStyle(
+      color: Colors.grey[700],
+      fontSize: 9,
+    );
+    final textPainter = TextPainter(
+      textAlign: TextAlign.left,
+      textDirection: TextDirection.ltr,
+    );
+
+    // 绘制MACD标签（覆盖在图表上，在图表内部显示）
+    for (int i = 0; i <= 4; i++) {
+      final value = maxMacd - (maxMacd - minMacd) * i / 4;
+      textPainter.text = TextSpan(
+        text: value.toStringAsFixed(2),
+        style: textStyle,
+      );
+      textPainter.layout();
+      final y = macdChartTop + macdChartHeight * i / 4;
+      textPainter.paint(
+        canvas,
+        Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
+      );
+    }
+  }
+
   @override
   bool shouldRepaint(KlineChartPainter oldDelegate) {
     // 比较数据长度和内容，确保数据变化时重新绘制
     if (oldDelegate.klineDataList.length != klineDataList.length) {
+      return true;
+    }
+    if (oldDelegate.macdDataList.length != macdDataList.length) {
       return true;
     }
     // 比较第一个和最后一个数据点，确保数据范围变化时重新绘制
