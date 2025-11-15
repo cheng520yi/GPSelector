@@ -5,6 +5,7 @@ import '../models/stock_info.dart';
 import '../services/stock_pool_service.dart';
 import '../services/stock_pool_config_service.dart';
 import '../services/blacklist_service.dart';
+import 'log_viewer_screen.dart';
 
 class StockPoolConfigScreen extends StatefulWidget {
   const StockPoolConfigScreen({super.key});
@@ -368,6 +369,17 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
           title: const Text('股票池配置'),
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           actions: [
+            IconButton(
+              icon: const Icon(Icons.bug_report),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const LogViewerScreen(),
+                  ),
+                );
+              },
+              tooltip: '查看日志',
+            ),
             IconButton(
               icon: const Icon(Icons.save),
               onPressed: _hasUnsavedChanges ? _saveConfig : null,

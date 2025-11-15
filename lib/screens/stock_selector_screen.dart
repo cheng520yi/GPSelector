@@ -12,8 +12,8 @@ import '../services/stock_filter_service.dart';
 import '../services/log_service.dart';
 import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
-import 'log_viewer_screen.dart';
 import 'stock_detail_screen.dart';
+import 'stock_search_screen.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
@@ -195,15 +195,15 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
             tooltip: '条件组合管理',
           ),
           IconButton(
-            icon: const Icon(Icons.bug_report),
+            icon: const Icon(Icons.search),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => const LogViewerScreen(),
+                  builder: (context) => const StockSearchScreen(),
                 ),
               );
             },
-            tooltip: '查看日志',
+            tooltip: '搜索股票',
           ),
           IconButton(
             icon: const Icon(Icons.settings),

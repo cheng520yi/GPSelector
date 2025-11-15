@@ -337,8 +337,8 @@ class KlineChartPainter extends CustomPainter {
   static const double bottomPadding = 18.0; // 底部padding（用于日期标签，尽量紧凑）
   static const double priceLabelPadding = 2.0; // 价格标签距离左侧的间距（覆盖在图表上，偏左展示）
   static const double chartGap = 4.0; // K线图和成交量图之间的间隙（减小间隙）
-  static const double candleWidth = 6.0;
-  static const double candleSpacing = 2.0;
+  static const double candleWidth = 7.0; // 将原来的6.0 + 2.0合并，减少间隙
+  static const double candleSpacing = 1.0; // 消除间隙，将间隙合并到K线宽度上
   static const double volumeChartHeight = 120.0; // 成交量图表高度
   // K线图占整个图表的高度比例（根据副图数量动态调整）
   static double _getKlineChartHeightRatio(int subChartCount) {
