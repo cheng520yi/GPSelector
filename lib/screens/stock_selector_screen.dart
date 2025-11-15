@@ -13,6 +13,7 @@ import '../services/log_service.dart';
 import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
 import 'log_viewer_screen.dart';
+import 'stock_detail_screen.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
@@ -617,129 +618,142 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     final pctChg = _calculatePctChg(ranking.klineData);
     final isPositive = pctChg >= 0;
     
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => StockDetailScreen(
+              stockInfo: ranking.stockInfo,
+              currentKlineData: ranking.klineData,
+            ),
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 排名、股票名称和黑名单按钮行
-            Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: _getRankColor(ranking.rank),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${ranking.rank}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 排名、股票名称和黑名单按钮行
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _getRankColor(ranking.rank),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${ranking.rank}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        ranking.stockInfo.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ranking.stockInfo.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
                         ),
-                      ),
-                      Text(
-                        '${ranking.stockInfo.symbol} | ${ranking.stockInfo.market}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
+                        Text(
+                          '${ranking.stockInfo.symbol} | ${ranking.stockInfo.market}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                // 价格
-                Text(
-                  '¥${ranking.klineData.close.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                  // 价格
+                  Text(
+                    '¥${ranking.klineData.close.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                // 黑名单按钮（小按钮）
-                FutureBuilder<bool>(
-                  future: BlacklistService.isInBlacklist(ranking.stockInfo.tsCode),
-                  builder: (context, snapshot) {
-                    final isInBlacklist = snapshot.data ?? false;
-                    return GestureDetector(
-                      onTap: () => _toggleBlacklist(ranking.stockInfo, isInBlacklist),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: isInBlacklist ? Colors.green[100] : Colors.orange[100],
-                          borderRadius: BorderRadius.circular(6),
+                  const SizedBox(width: 8),
+                  // 黑名单按钮（小按钮）
+                  FutureBuilder<bool>(
+                    future: BlacklistService.isInBlacklist(ranking.stockInfo.tsCode),
+                    builder: (context, snapshot) {
+                      final isInBlacklist = snapshot.data ?? false;
+                      return GestureDetector(
+                        onTap: () => _toggleBlacklist(ranking.stockInfo, isInBlacklist),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isInBlacklist ? Colors.green[100] : Colors.orange[100],
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            isInBlacklist ? Icons.remove_circle : Icons.block,
+                            size: 16,
+                            color: isInBlacklist ? Colors.green[700] : Colors.orange[700],
+                          ),
                         ),
-                        child: Icon(
-                          isInBlacklist ? Icons.remove_circle : Icons.block,
-                          size: 16,
-                          color: isInBlacklist ? Colors.green[700] : Colors.orange[700],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // 涨跌幅、成交量、成交额一行
-            Row(
-              children: [
-                Expanded(
-                  child: _buildCompactInfoItem(
-                    '涨跌幅',
-                    '${isPositive ? '+' : ''}${pctChg.toStringAsFixed(2)}%',
-                    isPositive ? Colors.red[700]! : Colors.green[700]!,
+                      );
+                    },
                   ),
-                ),
-                Expanded(
-                  child: _buildCompactInfoItem(
-                    '成交量',
-                    '${(ranking.klineData.vol / 10000).toStringAsFixed(0)}万手',
-                    Colors.orange[700]!,
+                ],
+              ),
+              const SizedBox(height: 12),
+              // 涨跌幅、成交量、成交额一行
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCompactInfoItem(
+                      '涨跌幅',
+                      '${isPositive ? '+' : ''}${pctChg.toStringAsFixed(2)}%',
+                      isPositive ? Colors.red[700]! : Colors.green[700]!,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _buildCompactInfoItem(
-                    '成交额',
-                    '${ranking.amountInYi.toStringAsFixed(2)}亿元',
-                    Colors.blue[700]!,
+                  Expanded(
+                    child: _buildCompactInfoItem(
+                      '成交量',
+                      '${(ranking.klineData.vol / 10000).toStringAsFixed(0)}万手',
+                      Colors.orange[700]!,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  Expanded(
+                    child: _buildCompactInfoItem(
+                      '成交额',
+                      '${ranking.amountInYi.toStringAsFixed(2)}亿元',
+                      Colors.blue[700]!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
