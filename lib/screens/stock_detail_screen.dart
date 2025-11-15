@@ -29,6 +29,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   int _selectedDays = 60; // 默认显示60天
   int _subChartCount = 1; // 默认显示1个副图
   String _selectedChartType = 'daily'; // 默认选择日K，可选：daily(日K), weekly(周K), monthly(月K)
+  KlineData? _selectedKlineData; // 选中的K线数据
+  Map<String, double?>? _selectedMaValues; // 选中日期的均线值
 
   @override
   void initState() {
@@ -116,7 +118,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       // 根据图表类型调用不同的API
       final results = await Future.wait([
         StockApiService.getKlineData(
-          tsCode: widget.stockInfo.tsCode,
+        tsCode: widget.stockInfo.tsCode,
           kLineType: _selectedChartType, // 使用选择的图表类型
           days: requestDays,
         ),
@@ -200,11 +202,17 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         _klineDataList = sortedData;
         _macdDataList = sortedMacdData;
         _isLoading = false;
+        // 切换图表类型后，清除选中状态，让顶部显示最新数据
+        // 对于周K和月K，_klineDataList.last已经是累积后的最新一周或一月的数据
+        _selectedKlineData = null;
+        _selectedMaValues = null;
       });
       
       // 验证数据是否正确设置
       if (_klineDataList.isNotEmpty) {
-        print('✅ 验证: _klineDataList最后一条数据: 日期=${_klineDataList.last.tradeDate}, 成交量=${_klineDataList.last.vol}');
+        final lastData = _klineDataList.last;
+        print('✅ 验证: _klineDataList最后一条数据: 图表类型=$_selectedChartType, 日期=${lastData.tradeDate}, 收盘价=${lastData.close}, 成交量=${lastData.vol}');
+        print('✅ 顶部将显示: 收盘价=${lastData.close}, 涨跌=${lastData.change}, 涨跌幅=${lastData.pctChg}%');
       }
     } catch (e) {
       setState(() {
@@ -700,6 +708,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
                   ),
                 )
               : CustomScrollView(
+                  key: ValueKey('${_selectedChartType}_${_klineDataList.length}'), // 添加key，确保切换图表类型时重建
                   slivers: [
                     // 股票基本信息
                     SliverToBoxAdapter(
@@ -719,7 +728,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   }
 
   Widget _buildStockInfoCard() {
-    final currentData = widget.currentKlineData ?? 
+    // 优先使用选中的数据，否则使用最新交易日的数据（忽略筛选列表传入的currentKlineData，因为它可能不是最新交易日）
+    final currentData = _selectedKlineData ?? 
         (_klineDataList.isNotEmpty ? _klineDataList.last : null);
     final pctChg = currentData != null 
         ? (currentData.preClose > 0 
@@ -782,13 +792,28 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
                         color: isPositive ? Colors.red[700] : Colors.green[700],
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${isPositive ? '+' : ''}${currentData.change.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 13, // 减小字体
+                            color: isPositive ? Colors.red[700] : Colors.green[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
                     Text(
                       '${isPositive ? '+' : ''}${pctChg.toStringAsFixed(2)}%',
                       style: TextStyle(
-                        fontSize: 13, // 减小字体
+                            fontSize: 13, // 减小字体
                         color: isPositive ? Colors.red[700] : Colors.green[700],
                         fontWeight: FontWeight.w600,
                       ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -899,10 +924,10 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         }
         
         // 切换图表类型并重新加载数据
-        setState(() {
+          setState(() {
           _selectedChartType = chartType;
-        });
-        _loadKlineData();
+          });
+          _loadKlineData();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), // 减小上下边距
@@ -975,7 +1000,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
 
   // 构建均线展示行
   Widget _buildMovingAverageRow() {
-    final maValues = _calculateLatestMovingAverages();
+    // 优先使用选中的均线值，否则使用最新交易日的均线值
+    final maValues = _selectedMaValues ?? _calculateLatestMovingAverages();
     
     // 判断均线趋势（与前一个交易日的均线值比较）
     String getTrend(double? currentMa, double? prevMa) {
@@ -983,82 +1009,80 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       return currentMa >= prevMa ? '↑' : '↓';
     }
     
+    // 构建均线值显示（包含数值和箭头）
+    Widget buildMaValue(String label, double? value, double? prevValue, Color color) {
+      final trend = getTrend(value, prevValue);
+      // 箭头颜色更深，使箭头更明显
+      Color arrowColor;
+      if (color == Colors.black) {
+        arrowColor = Colors.black; // 黑色已经是最深
+      } else if (color == Colors.yellow[700]) {
+        arrowColor = Colors.yellow[900]!; // 使用更深的黄色
+      } else if (color == Colors.purple) {
+        arrowColor = Colors.purple[800]!; // 使用更深的紫色
+      } else {
+        arrowColor = color; // 默认使用原色
+      }
+      
+      return Row(
+        children: [
+          Text(
+            '$label:',
+            style: TextStyle(
+              fontSize: 13, // 增大字体
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(width: 4),
+          value != null
+              ? RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: value.toStringAsFixed(2),
+                        style: TextStyle(
+                          fontSize: 13, // 增大字体
+                          color: color,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (trend.isNotEmpty)
+                        TextSpan(
+                          text: trend,
+                          style: TextStyle(
+                            fontSize: 16, // 箭头更大
+                            color: arrowColor, // 箭头颜色更深，更明显
+                            fontWeight: FontWeight.bold, // 加粗箭头
+                          ),
+                        ),
+                    ],
+                  ),
+                )
+              : Text(
+                  '--',
+                  style: TextStyle(
+                    fontSize: 13, // 增大字体
+                    color: color,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+        ],
+      );
+    }
+    
     return Row(
       children: [
         // MA5（黑色）
         Expanded(
-          child: Row(
-            children: [
-              Text(
-                'MA5:',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                maValues['ma5'] != null 
-                  ? '${maValues['ma5']!.toStringAsFixed(2)}${getTrend(maValues['ma5'], maValues['prevMa5'])}'
-                  : '--',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.black, // 与K线图MA5颜色一致
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+          child: buildMaValue('MA5', maValues['ma5'], maValues['prevMa5'], Colors.black),
         ),
         // MA10（黄色）
         Expanded(
-          child: Row(
-            children: [
-              Text(
-                'MA10:',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                maValues['ma10'] != null 
-                  ? '${maValues['ma10']!.toStringAsFixed(2)}${getTrend(maValues['ma10'], maValues['prevMa10'])}'
-                  : '--',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.yellow[700], // 与K线图MA10颜色一致
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+          child: buildMaValue('MA10', maValues['ma10'], maValues['prevMa10'], Colors.yellow[700]!),
         ),
         // MA20（紫色）
         Expanded(
-          child: Row(
-            children: [
-              Text(
-                'MA20:',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                maValues['ma20'] != null 
-                  ? '${maValues['ma20']!.toStringAsFixed(2)}${getTrend(maValues['ma20'], maValues['prevMa20'])}'
-                  : '--',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.purple, // 与K线图MA20颜色一致
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+          child: buildMaValue('MA20', maValues['ma20'], maValues['prevMa20'], Colors.purple),
         ),
       ],
     );
@@ -1133,11 +1157,63 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
               displayDays: _selectedDays, // 只显示选择的天数，但均线计算用全部数据
               subChartCount: _subChartCount, // 显示选择的副图数量
               chartType: _selectedChartType, // 传递图表类型，用于格式化日期标签
+              onDataSelected: (KlineData data, Map<String, double?> maValues) {
+                setState(() {
+                  // 直接使用图表中已经处理好的数据（避免网络请求）
+                  // 对于周K和月K，数据已经在加载时处理好了累积信息
+                  _selectedKlineData = data;
+                  _selectedMaValues = maValues;
+                  
+                  // 对于周K和月K，尝试从已有数据中查找上一周/上一月的数据来计算涨跌幅
+                  if (_selectedChartType == 'weekly' || _selectedChartType == 'monthly') {
+                    _updateSelectedDataWithPrevPeriod(data);
+                  }
+                });
+              },
             ),
           ),
         ],
       ),
     );
+  }
+
+  // 更新选中数据的上一周期数据（用于计算涨跌幅，仅从已有数据中查找，不请求网络）
+  void _updateSelectedDataWithPrevPeriod(KlineData selectedData) {
+    try {
+      // 在_klineDataList中查找当前选中数据的索引
+      final currentIndex = _klineDataList.indexWhere((data) => data.tradeDate == selectedData.tradeDate);
+      if (currentIndex < 0 || currentIndex == 0) {
+        // 找不到或已经是第一条数据，无法计算涨跌幅
+        return;
+      }
+      
+      // 获取前一条数据（上一周或上一月）
+      final prevData = _klineDataList[currentIndex - 1];
+      
+      // 更新选中数据，使用前一条数据的收盘价作为preClose
+      final updatedData = KlineData(
+        tsCode: selectedData.tsCode,
+        tradeDate: selectedData.tradeDate,
+        open: selectedData.open,
+        high: selectedData.high,
+        low: selectedData.low,
+        close: selectedData.close,
+        preClose: prevData.close, // 使用上一周/上一月的收盘价
+        change: selectedData.close - prevData.close,
+        pctChg: prevData.close > 0 
+            ? ((selectedData.close - prevData.close) / prevData.close * 100) 
+            : 0.0,
+        vol: selectedData.vol,
+        amount: selectedData.amount,
+      );
+      
+      setState(() {
+        _selectedKlineData = updatedData;
+      });
+    } catch (e) {
+      print('❌ 更新选中数据的上一周期数据失败: $e');
+      // 失败时保持原数据不变
+    }
   }
 
   Widget _buildStatisticsCard() {

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'dart:async';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
 
-class KlineChartWidget extends StatelessWidget {
+class KlineChartWidget extends StatefulWidget {
   final List<KlineData> klineDataList;
   final List<MacdData> macdDataList; // MACD数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量，默认为1（成交量），支持4个副图
   final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
+  final Function(KlineData, Map<String, double?>)? onDataSelected; // 选中数据回调
 
   const KlineChartWidget({
     super.key,
@@ -17,23 +19,292 @@ class KlineChartWidget extends StatelessWidget {
     this.displayDays,
     this.subChartCount = 1, // 默认1个副图（成交量）
     this.chartType = 'daily', // 默认日K
+    this.onDataSelected,
   });
 
   @override
+  State<KlineChartWidget> createState() => _KlineChartWidgetState();
+}
+
+class _KlineChartWidgetState extends State<KlineChartWidget> {
+  int? _selectedIndex; // 选中的K线数据索引（在可见数据中的索引）
+  Timer? _autoResetTimer; // 自动恢复定时器
+  
+  @override
+  void didUpdateWidget(KlineChartWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 如果klineDataList发生变化，清除选中状态
+    if (oldWidget.klineDataList != widget.klineDataList) {
+      _selectedIndex = null;
+      _autoResetTimer?.cancel();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoResetTimer?.cancel();
+    super.dispose();
+  }
+
+  // 根据触摸位置找到对应的K线数据点
+  int? _findDataIndexAtPosition(double x, Size size) {
+    if (widget.klineDataList.isEmpty) return null;
+
+    // 计算可见数据范围（与paint方法中的逻辑保持一致）
+    final int startIndex;
+    if (widget.displayDays != null) {
+      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
+      startIndex = math.max(19, calculatedStartIndex);
+    } else {
+      if (widget.klineDataList.length > 19) {
+        startIndex = 19;
+      } else {
+        startIndex = 0;
+      }
+    }
+
+    final visibleData = widget.klineDataList.sublist(startIndex);
+    if (visibleData.isEmpty) return null;
+
+    // 计算K线宽度和间距（与_drawCandles保持一致）
+    final chartWidth = size.width;
+    double dynamicCandleWidth = KlineChartPainter.candleWidth;
+    double dynamicCandleSpacing = KlineChartPainter.candleSpacing;
+
+    if (visibleData.length > 0) {
+      final requiredWidth = visibleData.length * (KlineChartPainter.candleWidth + KlineChartPainter.candleSpacing);
+      if (requiredWidth > chartWidth) {
+        final scale = chartWidth / requiredWidth;
+        dynamicCandleWidth = KlineChartPainter.candleWidth * scale;
+        dynamicCandleSpacing = KlineChartPainter.candleSpacing * scale;
+      } else {
+        final availableWidthPerCandle = chartWidth / visibleData.length;
+        final totalRatio = KlineChartPainter.candleWidth + KlineChartPainter.candleSpacing;
+        dynamicCandleWidth = (KlineChartPainter.candleWidth / totalRatio) * availableWidthPerCandle;
+        dynamicCandleSpacing = (KlineChartPainter.candleSpacing / totalRatio) * availableWidthPerCandle;
+      }
+    }
+
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    // 找到最接近触摸位置的K线索引
+    final index = (x / candleTotalWidth).round();
+    if (index >= 0 && index < visibleData.length) {
+      return index;
+    }
+    return null;
+  }
+
+  // 计算选中日期的均线值
+  Map<String, double?> _calculateMovingAveragesForIndex(int index) {
+    // 计算在完整数据列表中的索引
+    final int startIndex;
+    if (widget.displayDays != null) {
+      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
+      startIndex = math.max(19, calculatedStartIndex);
+    } else {
+      if (widget.klineDataList.length > 19) {
+        startIndex = 19;
+      } else {
+        startIndex = 0;
+      }
+    }
+
+    final absoluteIndex = startIndex + index;
+    if (absoluteIndex < 0 || absoluteIndex >= widget.klineDataList.length) {
+      return {'ma5': null, 'ma10': null, 'ma20': null, 'prevMa5': null, 'prevMa10': null, 'prevMa20': null};
+    }
+
+    // 计算MA5
+    double? ma5;
+    double? prevMa5;
+    if (absoluteIndex >= 4) {
+      final last5 = widget.klineDataList.sublist(absoluteIndex - 4, absoluteIndex + 1);
+      ma5 = last5.map((e) => e.close).reduce((a, b) => a + b) / 5;
+      
+      if (absoluteIndex >= 5) {
+        final prev5 = widget.klineDataList.sublist(absoluteIndex - 5, absoluteIndex);
+        prevMa5 = prev5.map((e) => e.close).reduce((a, b) => a + b) / 5;
+      }
+    }
+
+    // 计算MA10
+    double? ma10;
+    double? prevMa10;
+    if (absoluteIndex >= 9) {
+      final last10 = widget.klineDataList.sublist(absoluteIndex - 9, absoluteIndex + 1);
+      ma10 = last10.map((e) => e.close).reduce((a, b) => a + b) / 10;
+      
+      if (absoluteIndex >= 10) {
+        final prev10 = widget.klineDataList.sublist(absoluteIndex - 10, absoluteIndex);
+        prevMa10 = prev10.map((e) => e.close).reduce((a, b) => a + b) / 10;
+      }
+    }
+
+    // 计算MA20
+    double? ma20;
+    double? prevMa20;
+    if (absoluteIndex >= 19) {
+      final last20 = widget.klineDataList.sublist(absoluteIndex - 19, absoluteIndex + 1);
+      ma20 = last20.map((e) => e.close).reduce((a, b) => a + b) / 20;
+      
+      if (absoluteIndex >= 20) {
+        final prev20 = widget.klineDataList.sublist(absoluteIndex - 20, absoluteIndex);
+        prevMa20 = prev20.map((e) => e.close).reduce((a, b) => a + b) / 20;
+      }
+    }
+
+    return {'ma5': ma5, 'ma10': ma10, 'ma20': ma20, 'prevMa5': prevMa5, 'prevMa10': prevMa10, 'prevMa20': prevMa20};
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final size = renderBox.size;
+    final index = _findDataIndexAtPosition(details.localPosition.dx, size);
+    if (index != null) {
+      // 计算在完整数据列表中的索引
+      final int startIndex;
+      if (widget.displayDays != null) {
+        final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
+        startIndex = math.max(19, calculatedStartIndex);
+      } else {
+        if (widget.klineDataList.length > 19) {
+          startIndex = 19;
+        } else {
+          startIndex = 0;
+        }
+      }
+
+      final absoluteIndex = startIndex + index;
+      if (absoluteIndex >= 0 && absoluteIndex < widget.klineDataList.length) {
+        setState(() {
+          _selectedIndex = index;
+        });
+
+        final selectedData = widget.klineDataList[absoluteIndex];
+        final maValues = _calculateMovingAveragesForIndex(index);
+        
+        // 通知父组件
+        if (widget.onDataSelected != null) {
+          widget.onDataSelected!(selectedData, maValues);
+        }
+
+        // 取消之前的定时器
+        _autoResetTimer?.cancel();
+        // 5秒后自动恢复（无论是否是最新数据）
+        _autoResetTimer = Timer(const Duration(seconds: 5), () {
+          if (mounted) {
+            setState(() {
+              _selectedIndex = null;
+            });
+            // 恢复显示最新日期的数据
+            if (widget.klineDataList.isNotEmpty && widget.onDataSelected != null) {
+              final latestData = widget.klineDataList.last;
+              final latestMaValues = _calculateLatestMovingAverages();
+              widget.onDataSelected!(latestData, latestMaValues);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // 计算最新交易日的均线值（用于恢复）
+  Map<String, double?> _calculateLatestMovingAverages() {
+    if (widget.klineDataList.length < 5) {
+      return {'ma5': null, 'ma10': null, 'ma20': null, 'prevMa5': null, 'prevMa10': null, 'prevMa20': null};
+    }
+
+    // 计算在可见数据中的最后一个索引
+    final int startIndex;
+    if (widget.displayDays != null) {
+      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
+      startIndex = math.max(19, calculatedStartIndex);
+    } else {
+      if (widget.klineDataList.length > 19) {
+        startIndex = 19;
+      } else {
+        startIndex = 0;
+      }
+    }
+
+    final lastVisibleIndex = widget.klineDataList.length - 1 - startIndex;
+    return _calculateMovingAveragesForIndex(lastVisibleIndex);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (klineDataList.isEmpty) {
+    if (widget.klineDataList.isEmpty) {
       return const Center(child: Text('暂无数据'));
     }
 
-    return CustomPaint(
-      painter: KlineChartPainter(
-        klineDataList: klineDataList,
-        macdDataList: macdDataList,
-        displayDays: displayDays,
-        subChartCount: subChartCount,
-        chartType: chartType,
-      ),
+    return GestureDetector(
+      onTapDown: _handleTapDown,
+      onPanUpdate: (DragUpdateDetails details) {
+        // 拖动时也更新选中
+        final renderBox = context.findRenderObject() as RenderBox?;
+        if (renderBox == null) return;
+        final size = renderBox.size;
+        final index = _findDataIndexAtPosition(details.localPosition.dx, size);
+        if (index != null) {
+          // 计算在完整数据列表中的索引
+          final int startIndex;
+          if (widget.displayDays != null) {
+            final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
+            startIndex = math.max(19, calculatedStartIndex);
+          } else {
+            if (widget.klineDataList.length > 19) {
+              startIndex = 19;
+            } else {
+              startIndex = 0;
+            }
+          }
+
+          final absoluteIndex = startIndex + index;
+          if (absoluteIndex >= 0 && absoluteIndex < widget.klineDataList.length) {
+            setState(() {
+              _selectedIndex = index;
+            });
+
+            final selectedData = widget.klineDataList[absoluteIndex];
+            final maValues = _calculateMovingAveragesForIndex(index);
+            
+            // 通知父组件
+            if (widget.onDataSelected != null) {
+              widget.onDataSelected!(selectedData, maValues);
+            }
+
+            // 取消之前的定时器
+            _autoResetTimer?.cancel();
+            // 5秒后自动恢复（无论是否是最新数据）
+            _autoResetTimer = Timer(const Duration(seconds: 5), () {
+              if (mounted) {
+                setState(() {
+                  _selectedIndex = null;
+                });
+                // 恢复显示最新日期的数据
+                if (widget.klineDataList.isNotEmpty && widget.onDataSelected != null) {
+                  final latestData = widget.klineDataList.last;
+                  final latestMaValues = _calculateLatestMovingAverages();
+                  widget.onDataSelected!(latestData, latestMaValues);
+                }
+              }
+            });
+          }
+        }
+      },
+      child: CustomPaint(
+        painter: KlineChartPainter(
+          klineDataList: widget.klineDataList,
+          macdDataList: widget.macdDataList,
+          displayDays: widget.displayDays,
+          subChartCount: widget.subChartCount,
+          chartType: widget.chartType,
+          selectedIndex: _selectedIndex, // 传递选中索引
+        ),
       size: Size.infinite,
+      ),
     );
   }
 }
@@ -59,6 +330,7 @@ class KlineChartPainter extends CustomPainter {
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量
   final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
+  final int? selectedIndex; // 选中的K线数据索引（在可见数据中的索引）
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度）
   static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度）
   static const double topPadding = 0.0; // 顶部padding（设为0，完全占满）
@@ -90,6 +362,7 @@ class KlineChartPainter extends CustomPainter {
     this.displayDays,
     this.subChartCount = 1,
     this.chartType = 'daily',
+    this.selectedIndex,
   });
 
   // 计算每个数据点的均线值
@@ -290,6 +563,11 @@ class KlineChartPainter extends CustomPainter {
       currentSubChartTop += subChartHeight + chartGap;
     }
 
+    // 绘制选中竖线（如果有选中）
+    if (selectedIndex != null && selectedIndex! >= 0 && selectedIndex! < visibleData.length) {
+      _drawSelectedLine(canvas, size, visibleData, selectedIndex!, klineChartHeight, currentSubChartTop - chartGap);
+    }
+
     // 绘制日期标签（在最后一个副图下方）
     final lastSubChartTop = topPadding + klineChartHeight + chartGap + subChartHeight * subChartCount + chartGap * (subChartCount - 1);
     _drawDateLabels(canvas, size, visibleData, lastSubChartTop);
@@ -349,12 +627,56 @@ class KlineChartPainter extends CustomPainter {
     }
   }
 
+  // 绘制选中竖线
+  void _drawSelectedLine(Canvas canvas, Size size, List<KlineData> visibleData, int selectedIndex,
+      double klineChartHeight, double subChartBottom) {
+    if (selectedIndex < 0 || selectedIndex >= visibleData.length) return;
+
+    final chartWidth = size.width;
+    
+    // 计算K线宽度和间距（与_drawCandles保持一致）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    
+    if (visibleData.length > 0) {
+      if (visibleData.length == 1) {
+        dynamicCandleWidth = chartWidth;
+        dynamicCandleSpacing = 0;
+      } else {
+        final availableWidthPerCandle = chartWidth / visibleData.length;
+        final totalRatio = candleWidth + candleSpacing;
+        dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+        dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+      }
+    }
+    
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+    final x = selectedIndex * candleTotalWidth + dynamicCandleWidth / 2;
+
+    // 绘制竖线（从K线图顶部到所有副图底部）
+    final linePaint = Paint()
+      ..color = Colors.blue
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(
+      Offset(x, topPadding),
+      Offset(x, subChartBottom),
+      linePaint,
+    );
+  }
+
   void _drawDateLabels(Canvas canvas, Size size, List<KlineData> visibleData, double volumeChartTop) {
     if (visibleData.isEmpty) return;
 
     final textStyle = TextStyle(
       color: Colors.grey[700],
       fontSize: 9, // 减小字体大小
+    );
+    final selectedTextStyle = TextStyle(
+      color: Colors.blue,
+      fontSize: 9,
+      fontWeight: FontWeight.bold,
     );
     final textPainter = TextPainter(
       textAlign: TextAlign.center,
@@ -369,13 +691,10 @@ class KlineChartPainter extends CustomPainter {
     double dynamicCandleSpacing = candleSpacing;
     
     if (visibleData.length > 0) {
-      final requiredWidth = visibleData.length * (candleWidth + candleSpacing);
-      if (requiredWidth > chartWidth) {
-        final scale = chartWidth / requiredWidth;
-        dynamicCandleWidth = candleWidth * scale;
-        dynamicCandleSpacing = candleSpacing * scale;
+      if (visibleData.length == 1) {
+        dynamicCandleWidth = chartWidth;
+        dynamicCandleSpacing = 0;
       } else {
-        // 数据较少，增大宽度和间距使图表铺满
         final availableWidthPerCandle = chartWidth / visibleData.length;
         final totalRatio = candleWidth + candleSpacing;
         dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
@@ -384,47 +703,72 @@ class KlineChartPainter extends CustomPainter {
     }
     
     final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
-    final labelCount = 5; // 显示5个日期标签
-
+    
+    // 如果有选中，在底部显示选中日期
+    if (selectedIndex != null && selectedIndex! >= 0 && selectedIndex! < visibleData.length) {
+      final selectedData = visibleData[selectedIndex!];
+      String dateStr;
+      
+      // 根据图表类型格式化日期
+      if (chartType == 'monthly') {
+        dateStr = selectedData.tradeDate.substring(0, 6);
+      } else {
+        dateStr = '${selectedData.tradeDate.substring(4, 6)}-${selectedData.tradeDate.substring(6, 8)}';
+      }
+      
+      textPainter.text = TextSpan(
+        text: dateStr,
+        style: selectedTextStyle,
+      );
+      textPainter.layout();
+      final x = selectedIndex! * candleTotalWidth + dynamicCandleWidth / 2;
+      textPainter.paint(
+        canvas,
+        Offset(x - textPainter.width / 2, size.height - bottomPadding + 4),
+      );
+    } else {
+      // 没有选中时，显示常规的5个日期标签
+      final labelCount = 5;
     for (int i = 0; i < labelCount; i++) {
       final index = (visibleData.length - 1) * i ~/ (labelCount - 1);
       if (index < visibleData.length) {
         final date = visibleData[index].tradeDate;
-        String dateStr;
-        
-        // 根据图表类型格式化日期
-        if (chartType == 'monthly') {
-          // 月K：显示为YYYYMM格式（如202511）
-          dateStr = date.substring(0, 6); // 取前6位：YYYYMM
-        } else {
-          // 日K和周K：显示为MM-DD格式
-          dateStr = '${date.substring(4, 6)}-${date.substring(6, 8)}';
-        }
-        
+          String dateStr;
+          
+          // 根据图表类型格式化日期
+          if (chartType == 'monthly') {
+            // 月K：显示为YYYYMM格式（如202511）
+            dateStr = date.substring(0, 6); // 取前6位：YYYYMM
+          } else {
+            // 日K和周K：显示为MM-DD格式
+            dateStr = '${date.substring(4, 6)}-${date.substring(6, 8)}';
+          }
+          
         textPainter.text = TextSpan(
           text: dateStr,
           style: textStyle,
         );
         textPainter.layout();
-        final x = index * candleTotalWidth + dynamicCandleWidth / 2;
-        
-        // 计算标签的x位置
-        double labelX;
-        if (i == 0) {
-          // 第一个标签：紧靠左边框
-          labelX = 0;
-        } else if (i == labelCount - 1) {
-          // 最后一个标签：紧靠右边框
-          labelX = size.width - textPainter.width;
-        } else {
-          // 中间标签：居中显示
-          labelX = x - textPainter.width / 2;
-        }
-        
+          final x = index * candleTotalWidth + dynamicCandleWidth / 2;
+          
+          // 计算标签的x位置
+          double labelX;
+          if (i == 0) {
+            // 第一个标签：紧靠左边框
+            labelX = 0;
+          } else if (i == labelCount - 1) {
+            // 最后一个标签：紧靠右边框
+            labelX = size.width - textPainter.width;
+          } else {
+            // 中间标签：居中显示
+            labelX = x - textPainter.width / 2;
+          }
+          
         textPainter.paint(
           canvas,
-          Offset(labelX, size.height - bottomPadding + 4),
+            Offset(labelX, size.height - bottomPadding + 4),
         );
+        }
       }
     }
   }
@@ -610,7 +954,7 @@ class KlineChartPainter extends CustomPainter {
       // 只有两个点，直接连接
       path.moveTo(validPoints[0].dx, validPoints[0].dy);
       path.lineTo(validPoints[1].dx, validPoints[1].dy);
-    } else {
+        } else {
       // 多个点，使用三次贝塞尔曲线平滑连接
       // 使用Catmull-Rom样条曲线的思想，计算控制点
       path.moveTo(validPoints[0].dx, validPoints[0].dy);
@@ -1062,6 +1406,10 @@ class KlineChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(KlineChartPainter oldDelegate) {
+    // 检查选中索引是否变化（影响竖线显示）
+    if (oldDelegate.selectedIndex != selectedIndex) {
+      return true;
+    }
     // 比较数据长度和内容，确保数据变化时重新绘制
     if (oldDelegate.klineDataList.length != klineDataList.length) {
       return true;

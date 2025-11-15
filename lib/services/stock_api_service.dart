@@ -1071,11 +1071,15 @@ class StockApiService {
                 // 而日K成交量单位是"手"，所以需要对周K和月K进行单位转换
                 // 检查：如果成交量异常大（可能是单位问题），进行转换
                 double adjustedVol = klineData.vol;
+                double adjustedAmount = klineData.amount;
                 if (kLineType == 'weekly' || kLineType == 'monthly') {
                   // 周K和月K的成交量如果大于日K的100倍，可能是单位问题（股 vs 手）
                   // 除以100转换为"手"单位，与日K保持一致
                   adjustedVol = klineData.vol / 100.0;
+                  // 周K和月K的成交额被放大了1000倍，需要除以1000
+                  adjustedAmount = klineData.amount / 1000.0;
                   print('📊 ${kLineType}K成交量单位转换: ${klineData.vol} -> $adjustedVol (除以100)');
+                  print('📊 ${kLineType}K成交额单位转换: ${klineData.amount} -> $adjustedAmount (除以1000)');
                 }
                 
                 // 创建调整后的KlineData
@@ -1090,7 +1094,7 @@ class StockApiService {
                   change: klineData.change,
                   pctChg: klineData.pctChg,
                   vol: adjustedVol, // 使用调整后的成交量
-                  amount: klineData.amount,
+                  amount: adjustedAmount, // 使用调整后的成交额
                 );
                 
                 klineDataList.add(adjustedKlineData);
