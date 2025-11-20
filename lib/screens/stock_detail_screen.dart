@@ -139,9 +139,10 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       // 根据图表类型调用不同的API
       final results = await Future.wait([
         StockApiService.getKlineData(
-        tsCode: widget.stockInfo.tsCode,
+          tsCode: widget.stockInfo.tsCode,
           kLineType: _selectedChartType, // 使用选择的图表类型
           days: requestDays,
+          stockName: widget.stockInfo.name, // 传入股票名称，用于判断是否为指数
         ),
         // MACD数据目前只支持日K，周K和月K暂时不加载MACD
         _selectedChartType == 'daily' 

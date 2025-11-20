@@ -1009,14 +1009,58 @@ class StockApiService {
     }
   }
 
+  // 判断是否为指数类型
+  static bool isIndex(String tsCode, {String? stockName}) {
+    // 通过股票名称判断（如果提供了名称）
+    if (stockName != null) {
+      if (stockName.contains('指数') || stockName.contains('指')) {
+        return true;
+      }
+    }
+    
+    // 通过代码规则判断常见的指数代码
+    // 上证指数：000001.SH
+    // 深证成指：399001.SZ
+    // 创业板指：399006.SZ
+    // 中小板指：399005.SZ
+    // 等等，指数代码通常以399开头（深市）或000001.SH（上证指数）
+    final symbol = tsCode.split('.').first;
+    if (tsCode == '000001.SH') {
+      return true; // 上证指数
+    }
+    if (symbol.startsWith('399') && tsCode.endsWith('.SZ')) {
+      return true; // 深市指数（399开头）
+    }
+    
+    return false;
+  }
+
   // 获取K线数据（单个股票）
   static Future<List<KlineData>> getKlineData({
     required String tsCode,
     required String kLineType,
     int days = 60,
     String? endDate, // 可选的结束日期，格式为yyyyMMdd
+    String? stockName, // 可选的股票名称，用于判断是否为指数
   }) async {
+    // 判断是否为指数，如果是指数，使用index_daily/index_weekly/index_monthly API
+    final bool isIndexType = isIndex(tsCode, stockName: stockName);
+    String apiName = kLineType;
+    
+    if (isIndexType) {
+      // 指数使用专门的API
+      if (kLineType == 'daily') {
+        apiName = 'index_daily';
+      } else if (kLineType == 'weekly') {
+        apiName = 'index_weekly';
+      } else if (kLineType == 'monthly') {
+        apiName = 'index_monthly';
+      }
+      print('📊 检测到指数类型，使用${apiName} API');
+    }
+    
     try {
+      
       // 计算开始和结束日期
       final DateTime endDateTime = endDate != null 
           ? DateTime.parse('${endDate.substring(0,4)}-${endDate.substring(4,6)}-${endDate.substring(6,8)}')
@@ -1027,7 +1071,7 @@ class StockApiService {
       final String formattedEndDate = DateFormat('yyyyMMdd').format(endDateTime);
 
       final Map<String, dynamic> requestData = {
-        "api_name": kLineType,
+        "api_name": apiName,
         "token": token,
         "params": {
           "ts_code": tsCode,
@@ -1037,7 +1081,7 @@ class StockApiService {
         "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
       };
 
-      print('📡 请求${kLineType}K线数据: $tsCode, 日期范围: $formattedStartDate - $formattedEndDate');
+      print('📡 请求${apiName}K线数据: $tsCode, 日期范围: $formattedStartDate - $formattedEndDate');
 
       final response = await http.post(
         Uri.parse(baseUrl),
@@ -1099,7 +1143,7 @@ class StockApiService {
                 
                 klineDataList.add(adjustedKlineData);
               } catch (e) {
-                print('❌ 解析${kLineType}K线数据失败: $e');
+                print('❌ 解析${apiName}K线数据失败: $e');
                 // 静默处理解析错误
               }
             }
@@ -1107,28 +1151,29 @@ class StockApiService {
             // 按交易日期排序，确保时间顺序正确（从早到晚）
             klineDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
             
-            print('✅ 获取${kLineType}K线数据成功: ${klineDataList.length}条记录');
+            print('✅ 获取${apiName}K线数据成功: ${klineDataList.length}条记录');
             if (klineDataList.isNotEmpty && (kLineType == 'weekly' || kLineType == 'monthly')) {
-              print('📊 ${kLineType}K成交量示例: 第一条=${klineDataList.first.vol}, 最后一条=${klineDataList.last.vol}');
+              print('📊 ${apiName}K成交量示例: 第一条=${klineDataList.first.vol}, 最后一条=${klineDataList.last.vol}');
             }
             return klineDataList;
           } else {
-            print('⚠️ ${kLineType}K线API返回数据为空');
+            print('⚠️ ${apiName}K线API返回数据为空');
             return [];
           }
         } else {
-          print('❌ ${kLineType}K线API返回错误: code=${responseData['code']}, msg=${responseData['msg']}');
+          print('❌ ${apiName}K线API返回错误: code=${responseData['code']}, msg=${responseData['msg']}');
           // 如果是API不支持的错误，打印更详细的提示
           if (responseData['code'] != null && responseData['code'] != 0) {
-            print('💡 提示: 如果错误码表示API不存在，可能需要检查Tushare是否支持${kLineType}类型的K线数据');
+            print('💡 提示: 如果错误码表示API不存在，可能需要检查Tushare是否支持${apiName}类型的K线数据');
           }
           return [];
         }
       } else {
-        print('❌ ${kLineType}K线HTTP请求失败: ${response.statusCode}');
+        print('❌ ${apiName}K线HTTP请求失败: ${response.statusCode}');
         return [];
       }
     } catch (e) {
+      print('❌ 获取${apiName}K线数据异常: $e');
       return [];
     }
   }
