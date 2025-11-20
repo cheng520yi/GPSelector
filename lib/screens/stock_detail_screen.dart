@@ -371,8 +371,65 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         endDate: weekEnd,
       );
       
+      // 如果本周没有历史日K数据，但有实时数据，使用实时数据创建或更新本周的周K数据
       if (weekDailyData.isEmpty) {
-        print('⚠️ 周K: 无法获取本周的日K数据');
+        print('⚠️ 周K: 无法获取本周的日K数据，尝试使用实时数据创建/更新本周周K数据');
+        
+        // 使用本周第一天的日期作为周K的tradeDate
+        final weekFirstDay = DateFormat('yyyyMMdd').format(weekStart);
+        
+        // 查找上周最后一条数据，用于获取preClose
+        double preClose = 0.0;
+        if (existingData.isNotEmpty) {
+          final lastData = existingData.last;
+          preClose = lastData.close;
+        }
+        
+        if (targetIndex >= 0) {
+          // 如果找到了本周的数据（可能是API返回的旧数据），使用实时数据更新它
+          final existingWeekData = existingData[targetIndex];
+          
+          final updatedWeekData = KlineData(
+            tsCode: existingWeekData.tsCode,
+            tradeDate: existingWeekData.tradeDate, // 保持周K的日期标识
+            open: realTimeData.open, // 使用实时数据的开盘价
+            high: realTimeData.high, // 使用实时数据的最高价
+            low: realTimeData.low, // 使用实时数据的最低价
+            close: realTimeData.close, // 使用实时数据的收盘价
+            preClose: existingWeekData.preClose,
+            change: realTimeData.close - realTimeData.open,
+            pctChg: realTimeData.open > 0 
+                ? ((realTimeData.close - realTimeData.open) / realTimeData.open * 100)
+                : 0.0,
+            vol: realTimeData.vol, // 使用实时交易量
+            amount: realTimeData.amount, // 使用实时成交额
+          );
+          
+          existingData[targetIndex] = updatedWeekData;
+          print('✅ 周K: 使用实时数据更新本周周K数据成功，日期=${existingWeekData.tradeDate}');
+        } else {
+          // 如果找不到本周的数据，创建新的周K数据
+          final newWeekData = KlineData(
+            tsCode: tsCode,
+            tradeDate: weekFirstDay,
+            open: realTimeData.open, // 使用实时数据的开盘价
+            high: realTimeData.high, // 使用实时数据的最高价
+            low: realTimeData.low, // 使用实时数据的最低价
+            close: realTimeData.close, // 使用实时数据的收盘价
+            preClose: preClose,
+            change: realTimeData.close - realTimeData.open,
+            pctChg: realTimeData.open > 0 
+                ? ((realTimeData.close - realTimeData.open) / realTimeData.open * 100)
+                : 0.0,
+            vol: realTimeData.vol, // 使用实时交易量
+            amount: realTimeData.amount, // 使用实时成交额
+          );
+          
+          existingData.add(newWeekData);
+          existingData.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+          
+          print('✅ 周K: 使用实时数据创建新的周K数据成功，日期=$weekFirstDay');
+        }
         return existingData;
       }
       

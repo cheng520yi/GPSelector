@@ -39,10 +39,10 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
 
   Future<void> _loadAllStocks() async {
     try {
-      final localData = await StockPoolService.loadStockPoolFromLocal();
-      final List<StockInfo> stockPool = localData['stockPool'] as List<StockInfo>;
+      // 从stock_data.json加载所有股票数据（包括指数），而不是从股票池加载
+      final List<StockInfo> allStocks = await StockPoolService.loadStockData();
       setState(() {
-        _allStocks = stockPool;
+        _allStocks = allStocks;
         _isLoading = false;
       });
     } catch (e) {
@@ -51,7 +51,7 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('加载股票池失败: $e')),
+          SnackBar(content: Text('加载股票数据失败: $e')),
         );
       }
     }
