@@ -154,6 +154,21 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
     if (_selectedCombination!.enableConsecutiveDays) {
       print('   - 连续天数: ${_selectedCombination!.consecutiveDaysConfig.days}天收盘价高于${_selectedCombination!.consecutiveDaysConfig.maType}');
     }
+    if (_selectedCombination!.maGrowthDaysConfig.hasAnyEnabled) {
+      List<String> growthConditions = [];
+      if (_selectedCombination!.maGrowthDaysConfig.ma5Config.enabled) {
+        growthConditions.add('MA5连续增长${_selectedCombination!.maGrowthDaysConfig.ma5Config.days}天');
+      }
+      if (_selectedCombination!.maGrowthDaysConfig.ma10Config.enabled) {
+        growthConditions.add('MA10连续增长${_selectedCombination!.maGrowthDaysConfig.ma10Config.days}天');
+      }
+      if (_selectedCombination!.maGrowthDaysConfig.ma20Config.enabled) {
+        growthConditions.add('MA20连续增长${_selectedCombination!.maGrowthDaysConfig.ma20Config.days}天');
+      }
+      if (growthConditions.isNotEmpty) {
+        print('   - 均线连续增长天数: ${growthConditions.join(', ')}');
+      }
+    }
     
     setState(() {
       _isLoading = true;
@@ -755,6 +770,14 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
           ],
           if (combination.enableConsecutiveDays) ...[
             _buildConditionRow('⏰ 连续天数', '${combination.consecutiveDaysConfig.days}天收盘价高于${combination.consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : combination.consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20'}'),
+          ],
+          if (combination.maGrowthDaysConfig.hasAnyEnabled) ...[
+            if (combination.maGrowthDaysConfig.ma5Config.enabled)
+              _buildConditionRow('📈 MA5连续增长', '${combination.maGrowthDaysConfig.ma5Config.days}天'),
+            if (combination.maGrowthDaysConfig.ma10Config.enabled)
+              _buildConditionRow('📈 MA10连续增长', '${combination.maGrowthDaysConfig.ma10Config.days}天'),
+            if (combination.maGrowthDaysConfig.ma20Config.enabled)
+              _buildConditionRow('📈 MA20连续增长', '${combination.maGrowthDaysConfig.ma20Config.days}天'),
           ],
         ],
       ],

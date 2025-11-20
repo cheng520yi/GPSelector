@@ -55,6 +55,85 @@ class ConsecutiveDaysConfig {
   }
 }
 
+/// 均线连续增长天数配置（单个均线）
+class MaGrowthDaysConfig {
+  final bool enabled;
+  final int days; // 连续增长天数
+  
+  MaGrowthDaysConfig({
+    required this.enabled,
+    required this.days,
+  });
+  
+  factory MaGrowthDaysConfig.fromJson(Map<String, dynamic> json) {
+    return MaGrowthDaysConfig(
+      enabled: json['enabled'] as bool,
+      days: json['days'] as int,
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'days': days,
+    };
+  }
+  
+  MaGrowthDaysConfig copyWith({
+    bool? enabled,
+    int? days,
+  }) {
+    return MaGrowthDaysConfig(
+      enabled: enabled ?? this.enabled,
+      days: days ?? this.days,
+    );
+  }
+}
+
+/// 均线连续增长天数配置（包含MA5、MA10、MA20三个配置）
+class MaGrowthDaysConfigSet {
+  final MaGrowthDaysConfig ma5Config;
+  final MaGrowthDaysConfig ma10Config;
+  final MaGrowthDaysConfig ma20Config;
+  
+  MaGrowthDaysConfigSet({
+    required this.ma5Config,
+    required this.ma10Config,
+    required this.ma20Config,
+  });
+  
+  factory MaGrowthDaysConfigSet.fromJson(Map<String, dynamic> json) {
+    return MaGrowthDaysConfigSet(
+      ma5Config: MaGrowthDaysConfig.fromJson(json['ma5Config'] as Map<String, dynamic>? ?? {'enabled': false, 'days': 5}),
+      ma10Config: MaGrowthDaysConfig.fromJson(json['ma10Config'] as Map<String, dynamic>? ?? {'enabled': false, 'days': 5}),
+      ma20Config: MaGrowthDaysConfig.fromJson(json['ma20Config'] as Map<String, dynamic>? ?? {'enabled': false, 'days': 5}),
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'ma5Config': ma5Config.toJson(),
+      'ma10Config': ma10Config.toJson(),
+      'ma20Config': ma20Config.toJson(),
+    };
+  }
+  
+  MaGrowthDaysConfigSet copyWith({
+    MaGrowthDaysConfig? ma5Config,
+    MaGrowthDaysConfig? ma10Config,
+    MaGrowthDaysConfig? ma20Config,
+  }) {
+    return MaGrowthDaysConfigSet(
+      ma5Config: ma5Config ?? this.ma5Config,
+      ma10Config: ma10Config ?? this.ma10Config,
+      ma20Config: ma20Config ?? this.ma20Config,
+    );
+  }
+  
+  /// 检查是否有任何配置启用
+  bool get hasAnyEnabled => ma5Config.enabled || ma10Config.enabled || ma20Config.enabled;
+}
+
 /// 成交额范围配置
 class AmountRangeConfig {
   final bool enabled;
@@ -110,6 +189,9 @@ class ConditionCombination {
   final bool enableConsecutiveDays;
   final ConsecutiveDaysConfig consecutiveDaysConfig;
   
+  // 均线连续增长天数配置
+  final MaGrowthDaysConfigSet maGrowthDaysConfig;
+  
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -129,6 +211,7 @@ class ConditionCombination {
     required this.ma20Config,
     required this.enableConsecutiveDays,
     required this.consecutiveDaysConfig,
+    required this.maGrowthDaysConfig,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -151,6 +234,7 @@ class ConditionCombination {
       ma20Config: MaDistanceConfig.fromJson(json['ma20Config'] as Map<String, dynamic>? ?? {'enabled': false, 'distance': 5.0}),
       enableConsecutiveDays: json['enableConsecutiveDays'] as bool? ?? false,
       consecutiveDaysConfig: ConsecutiveDaysConfig.fromJson(json['consecutiveDaysConfig'] as Map<String, dynamic>? ?? {'enabled': false, 'days': 10, 'maType': 'ma20'}),
+      maGrowthDaysConfig: MaGrowthDaysConfigSet.fromJson(json['maGrowthDaysConfig'] as Map<String, dynamic>? ?? {}),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -174,6 +258,7 @@ class ConditionCombination {
       'ma20Config': ma20Config.toJson(),
       'enableConsecutiveDays': enableConsecutiveDays,
       'consecutiveDaysConfig': consecutiveDaysConfig.toJson(),
+      'maGrowthDaysConfig': maGrowthDaysConfig.toJson(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -196,6 +281,7 @@ class ConditionCombination {
     MaDistanceConfig? ma20Config,
     bool? enableConsecutiveDays,
     ConsecutiveDaysConfig? consecutiveDaysConfig,
+    MaGrowthDaysConfigSet? maGrowthDaysConfig,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -215,6 +301,7 @@ class ConditionCombination {
       ma20Config: ma20Config ?? this.ma20Config,
       enableConsecutiveDays: enableConsecutiveDays ?? this.enableConsecutiveDays,
       consecutiveDaysConfig: consecutiveDaysConfig ?? this.consecutiveDaysConfig,
+      maGrowthDaysConfig: maGrowthDaysConfig ?? this.maGrowthDaysConfig,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -253,6 +340,23 @@ class ConditionCombination {
       String maTypeName = consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : 
                           consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20';
       conditions.add('连续${consecutiveDaysConfig.days}天高于${maTypeName}');
+    }
+    
+    // 均线连续增长天数
+    if (maGrowthDaysConfig.hasAnyEnabled) {
+      List<String> growthConditions = [];
+      if (maGrowthDaysConfig.ma5Config.enabled) {
+        growthConditions.add('MA5连续增长${maGrowthDaysConfig.ma5Config.days}天');
+      }
+      if (maGrowthDaysConfig.ma10Config.enabled) {
+        growthConditions.add('MA10连续增长${maGrowthDaysConfig.ma10Config.days}天');
+      }
+      if (maGrowthDaysConfig.ma20Config.enabled) {
+        growthConditions.add('MA20连续增长${maGrowthDaysConfig.ma20Config.days}天');
+      }
+      if (growthConditions.isNotEmpty) {
+        conditions.add('均线增长: ${growthConditions.join(', ')}');
+      }
     }
     
     return conditions.join(' | ');
@@ -402,6 +506,7 @@ class ConditionCombinationService {
     MaDistanceConfig? ma20Config,
     bool enableConsecutiveDays = false,
     ConsecutiveDaysConfig? consecutiveDaysConfig,
+    MaGrowthDaysConfigSet? maGrowthDaysConfig,
   }) {
     final now = DateTime.now();
     return ConditionCombination(
@@ -420,6 +525,11 @@ class ConditionCombinationService {
       ma20Config: ma20Config ?? MaDistanceConfig(enabled: false, distance: 5.0),
       enableConsecutiveDays: enableConsecutiveDays,
       consecutiveDaysConfig: consecutiveDaysConfig ?? ConsecutiveDaysConfig(enabled: false, days: 10, maType: 'ma20'),
+      maGrowthDaysConfig: maGrowthDaysConfig ?? MaGrowthDaysConfigSet(
+        ma5Config: MaGrowthDaysConfig(enabled: false, days: 5),
+        ma10Config: MaGrowthDaysConfig(enabled: false, days: 5),
+        ma20Config: MaGrowthDaysConfig(enabled: false, days: 5),
+      ),
       createdAt: now,
       updatedAt: now,
     );

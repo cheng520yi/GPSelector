@@ -308,7 +308,20 @@ class StockFilterService {
         ConsoleCaptureService.instance.capturePrint('⚠️ 跳过连续天数筛选 - 历史数据获取失败');
       }
 
-      // 10. 按成交额排序
+      // 10. 第五轮筛选：均线连续增长天数（可选条件）
+      if (combination.maGrowthDaysConfig.hasAnyEnabled && historicalKlineDataMap.isNotEmpty) {
+        print('🔍 条件5: 均线连续增长天数筛选');
+        ConsoleCaptureService.instance.capturePrint('🔍 条件5: 均线连续增长天数筛选');
+        candidates = await _filterByMaGrowthDays(candidates, combination, useIFinDRealTime, historicalKlineDataMap);
+        print('✅ 条件5完成: ${candidates.length}只股票通过均线连续增长天数筛选');
+        ConsoleCaptureService.instance.capturePrint('✅ 条件5完成: ${candidates.length}只股票通过均线连续增长天数筛选');
+        _printStockPool(candidates, '条件5-均线连续增长天数筛选');
+      } else if (combination.maGrowthDaysConfig.hasAnyEnabled && historicalKlineDataMap.isEmpty) {
+        print('⚠️ 跳过均线连续增长天数筛选 - 历史数据获取失败');
+        ConsoleCaptureService.instance.capturePrint('⚠️ 跳过均线连续增长天数筛选 - 历史数据获取失败');
+      }
+
+      // 11. 按成交额排序
       print('🔄 按成交额排序...');
       ConsoleCaptureService.instance.capturePrint('🔄 按成交额排序...');
       final sortedCandidates = StockRanking.sortByAmount(candidates);
@@ -632,6 +645,213 @@ class StockFilterService {
     }
     
     return filteredCandidates;
+  }
+
+  // 均线连续增长天数筛选
+  static Future<List<StockRanking>> _filterByMaGrowthDays(
+    List<StockRanking> candidates,
+    ConditionCombination combination,
+    bool useIFinDRealTime,
+    Map<String, List<KlineData>> historicalKlineDataMap,
+  ) async {
+    List<StockRanking> filteredCandidates = [];
+    int processed = 0;
+    
+    for (StockRanking ranking in candidates) {
+      processed++;
+      // 只打印前5个股票的详细过程
+      bool shouldPrintDetails = processed <= 5;
+      
+      try {
+        if (processed % 10 == 0) {
+          print('  📊 均线连续增长天数筛选进度: $processed/${candidates.length}');
+        }
+        
+        // 从已获取的历史数据中获取该股票的数据
+        final List<KlineData>? historicalData = historicalKlineDataMap[ranking.stockInfo.tsCode];
+        
+        if (historicalData == null || historicalData.isEmpty) {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据为空，跳过');
+          }
+          continue;
+        }
+        
+        // 检查每个启用的均线连续增长天数条件
+        bool passesMaGrowthDays = true;
+        List<String> failedConditions = [];
+        
+        // 检查MA5连续增长天数
+        if (combination.maGrowthDaysConfig.ma5Config.enabled) {
+          final requiredDays = combination.maGrowthDaysConfig.ma5Config.days;
+          final requiredDataLength = requiredDays + 4; // 需要额外4天计算MA5
+          
+          if (historicalData.length < requiredDataLength) {
+            passesMaGrowthDays = false;
+            failedConditions.add('MA5数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+          } else {
+            // 检查MA5是否连续增长
+            bool ma5Growing = _checkMaGrowthDays(historicalData, 'ma5', requiredDays, combination.selectedDate);
+            if (!ma5Growing) {
+              passesMaGrowthDays = false;
+              failedConditions.add('MA5未连续增长${requiredDays}天');
+            } else if (shouldPrintDetails) {
+              print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA5连续增长${requiredDays}天');
+            }
+          }
+        }
+        
+        // 检查MA10连续增长天数
+        if (combination.maGrowthDaysConfig.ma10Config.enabled) {
+          final requiredDays = combination.maGrowthDaysConfig.ma10Config.days;
+          final requiredDataLength = requiredDays + 9; // 需要额外9天计算MA10
+          
+          if (historicalData.length < requiredDataLength) {
+            passesMaGrowthDays = false;
+            failedConditions.add('MA10数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+          } else {
+            // 检查MA10是否连续增长
+            bool ma10Growing = _checkMaGrowthDays(historicalData, 'ma10', requiredDays, combination.selectedDate);
+            if (!ma10Growing) {
+              passesMaGrowthDays = false;
+              failedConditions.add('MA10未连续增长${requiredDays}天');
+            } else if (shouldPrintDetails) {
+              print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA10连续增长${requiredDays}天');
+            }
+          }
+        }
+        
+        // 检查MA20连续增长天数
+        if (combination.maGrowthDaysConfig.ma20Config.enabled) {
+          final requiredDays = combination.maGrowthDaysConfig.ma20Config.days;
+          final requiredDataLength = requiredDays + 19; // 需要额外19天计算MA20
+          
+          if (historicalData.length < requiredDataLength) {
+            passesMaGrowthDays = false;
+            failedConditions.add('MA20数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+          } else {
+            // 检查MA20是否连续增长
+            bool ma20Growing = _checkMaGrowthDays(historicalData, 'ma20', requiredDays, combination.selectedDate);
+            if (!ma20Growing) {
+              passesMaGrowthDays = false;
+              failedConditions.add('MA20未连续增长${requiredDays}天');
+            } else if (shouldPrintDetails) {
+              print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA20连续增长${requiredDays}天');
+            }
+          }
+        }
+        
+        if (passesMaGrowthDays) {
+          if (shouldPrintDetails) {
+            print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线连续增长天数筛选');
+          }
+          filteredCandidates.add(ranking);
+        } else {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线连续增长天数筛选 - ${failedConditions.join(', ')}');
+          }
+        }
+      } catch (e) {
+        if (shouldPrintDetails) {
+          print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 检查均线连续增长天数失败: $e');
+        }
+        continue;
+      }
+    }
+    
+    return filteredCandidates;
+  }
+
+  // 检查均线是否连续增长N天（从筛选日期开始往前倒退）
+  static bool _checkMaGrowthDays(
+    List<KlineData> historicalData,
+    String maType, // 'ma5', 'ma10', 'ma20'
+    int requiredDays,
+    DateTime selectedDate, // 筛选日期
+  ) {
+    // 将筛选日期转换为 yyyyMMdd 格式
+    final selectedDateStr = DateFormat('yyyyMMdd').format(selectedDate);
+    
+    // 找到筛选日期在历史数据中的索引
+    // historicalData[0] 是最早的数据，historicalData[historicalData.length-1] 是最新的数据
+    int selectedDateIndex = -1;
+    for (int i = historicalData.length - 1; i >= 0; i--) {
+      if (historicalData[i].tradeDate == selectedDateStr) {
+        selectedDateIndex = i;
+        break;
+      }
+    }
+    
+    // 如果找不到筛选日期，尝试找最接近的日期（往前找）
+    if (selectedDateIndex < 0) {
+      // 从最新日期往前找，找到第一个小于等于筛选日期的数据
+      for (int i = historicalData.length - 1; i >= 0; i--) {
+        if (historicalData[i].tradeDate.compareTo(selectedDateStr) <= 0) {
+          selectedDateIndex = i;
+          break;
+        }
+      }
+    }
+    
+    // 如果仍然找不到，返回false
+    if (selectedDateIndex < 0) {
+      return false; // 找不到筛选日期对应的数据
+    }
+    
+    // 从筛选日期开始往前检查连续增长天数
+    for (int i = 0; i < requiredDays; i++) {
+      final currentIndex = selectedDateIndex - i; // 当前检查的日期索引（从筛选日期开始往前）
+      final previousIndex = currentIndex - 1; // 前一天的索引
+      
+      if (previousIndex < 0) {
+        return false; // 数据不足
+      }
+      
+      // 计算当前日期的均线值
+      double currentMa;
+      switch (maType) {
+        case 'ma5':
+          if (currentIndex + 1 < 5) return false;
+          currentMa = MaCalculationService.calculateMA5(historicalData.sublist(currentIndex - 4, currentIndex + 1));
+          break;
+        case 'ma10':
+          if (currentIndex + 1 < 10) return false;
+          currentMa = MaCalculationService.calculateMA10(historicalData.sublist(currentIndex - 9, currentIndex + 1));
+          break;
+        case 'ma20':
+          if (currentIndex + 1 < 20) return false;
+          currentMa = MaCalculationService.calculateMA20(historicalData.sublist(currentIndex - 19, currentIndex + 1));
+          break;
+        default:
+          return false;
+      }
+      
+      // 计算前一天的均线值
+      double previousMa;
+      switch (maType) {
+        case 'ma5':
+          if (previousIndex + 1 < 5) return false;
+          previousMa = MaCalculationService.calculateMA5(historicalData.sublist(previousIndex - 4, previousIndex + 1));
+          break;
+        case 'ma10':
+          if (previousIndex + 1 < 10) return false;
+          previousMa = MaCalculationService.calculateMA10(historicalData.sublist(previousIndex - 9, previousIndex + 1));
+          break;
+        case 'ma20':
+          if (previousIndex + 1 < 20) return false;
+          previousMa = MaCalculationService.calculateMA20(historicalData.sublist(previousIndex - 19, previousIndex + 1));
+          break;
+        default:
+          return false;
+      }
+      
+      // 检查当前均线值是否大于前一天的均线值（连续增长）
+      if (currentMa <= previousMa) {
+        return false; // 未增长，不满足条件
+      }
+    }
+    
+    return true; // 所有天数都满足连续增长条件
   }
 
   // 基于股票池进行精细筛选（获取60日数据）

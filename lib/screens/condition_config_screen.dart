@@ -43,6 +43,13 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     maType: 'ma20',
   );
 
+  // 均线连续增长天数配置
+  MaGrowthDaysConfigSet _maGrowthDaysConfig = MaGrowthDaysConfigSet(
+    ma5Config: MaGrowthDaysConfig(enabled: false, days: 5),
+    ma10Config: MaGrowthDaysConfig(enabled: false, days: 5),
+    ma20Config: MaGrowthDaysConfig(enabled: false, days: 5),
+  );
+
   // 成交额范围配置
   AmountRangeConfig _amountRangeConfig = AmountRangeConfig(
     enabled: false,
@@ -89,6 +96,8 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
 
       _enableConsecutiveDays = combination.enableConsecutiveDays;
       _consecutiveDaysConfig = combination.consecutiveDaysConfig;
+      
+      _maGrowthDaysConfig = combination.maGrowthDaysConfig;
       
       _amountRangeConfig = combination.amountRangeConfig;
     } else {
@@ -273,6 +282,8 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             _buildMaDistanceSection(),
             const SizedBox(height: 16),
             _buildConsecutiveDaysSection(),
+            const SizedBox(height: 16),
+            _buildMaGrowthDaysSection(),
           ],
         ),
       ),
@@ -768,6 +779,105 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     );
   }
 
+  Widget _buildMaGrowthDaysSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Checkbox(
+              value: _maGrowthDaysConfig.hasAnyEnabled,
+              onChanged: (value) {
+                setState(() {
+                  final enabled = value ?? false;
+                  _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(
+                    ma5Config: _maGrowthDaysConfig.ma5Config.copyWith(enabled: enabled),
+                    ma10Config: _maGrowthDaysConfig.ma10Config.copyWith(enabled: enabled),
+                    ma20Config: _maGrowthDaysConfig.ma20Config.copyWith(enabled: enabled),
+                  );
+                });
+              },
+            ),
+            const Text(
+              '均线连续增长天数筛选',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        if (_maGrowthDaysConfig.hasAnyEnabled) ...[
+          const SizedBox(height: 8),
+          // MA5配置
+          _buildMaGrowthDaysItem(
+            'MA5',
+            _maGrowthDaysConfig.ma5Config,
+            (config) {
+              setState(() {
+                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma5Config: config);
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+          // MA10配置
+          _buildMaGrowthDaysItem(
+            'MA10',
+            _maGrowthDaysConfig.ma10Config,
+            (config) {
+              setState(() {
+                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma10Config: config);
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+          // MA20配置
+          _buildMaGrowthDaysItem(
+            'MA20',
+            _maGrowthDaysConfig.ma20Config,
+            (config) {
+              setState(() {
+                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma20Config: config);
+              });
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMaGrowthDaysItem(
+    String maName,
+    MaGrowthDaysConfig config,
+    Function(MaGrowthDaysConfig) onConfigChanged,
+  ) {
+    return Row(
+      children: [
+        Checkbox(
+          value: config.enabled,
+          onChanged: (value) {
+            onConfigChanged(config.copyWith(enabled: value ?? false));
+          },
+        ),
+        Text('$maName 连续增长 '),
+        DropdownButton<int>(
+          value: config.days,
+          items: _consecutiveDaysOptions.map((days) {
+            return DropdownMenuItem(
+              value: days,
+              child: Text('$days'),
+            );
+          }).toList(),
+          onChanged: config.enabled
+              ? (value) {
+                  if (value != null) {
+                    onConfigChanged(config.copyWith(days: value));
+                  }
+                }
+              : null,
+        ),
+        const Text(' 天'),
+      ],
+    );
+  }
+
   Widget _buildSaveButton() {
     return SizedBox(
       width: double.infinity,
@@ -838,6 +948,7 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
               ma20Config: _ma20Config,
               enableConsecutiveDays: _enableConsecutiveDays,
               consecutiveDaysConfig: _consecutiveDaysConfig,
+              maGrowthDaysConfig: _maGrowthDaysConfig,
               updatedAt: DateTime.now(),
             )
           : ConditionCombinationService.createCombination(
@@ -855,6 +966,7 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
               ma20Config: _ma20Config,
               enableConsecutiveDays: _enableConsecutiveDays,
               consecutiveDaysConfig: _consecutiveDaysConfig,
+              maGrowthDaysConfig: _maGrowthDaysConfig,
             );
 
       final success = await ConditionCombinationService.saveCombination(combination);
