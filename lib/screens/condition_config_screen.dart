@@ -227,10 +227,31 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _buildAmountThresholdField(),
-            const SizedBox(height: 16),
-            _buildDateField(),
+            const SizedBox(height: 20),
+            
+            // 成交额条件组
+            _buildConditionGroup(
+              title: '成交额条件',
+              icon: Icons.attach_money,
+              iconColor: Colors.blue,
+              children: [
+                _buildAmountThresholdField(),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            _buildDivider(),
+            const SizedBox(height: 20),
+            
+            // 日期条件组
+            _buildConditionGroup(
+              title: '筛选日期',
+              icon: Icons.calendar_today,
+              iconColor: Colors.orange,
+              children: [
+                _buildDateField(),
+              ],
+            ),
           ],
         ),
       ),
@@ -276,17 +297,98 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _buildPctChgSection(),
-            const SizedBox(height: 16),
-            _buildMaDistanceSection(),
-            const SizedBox(height: 16),
-            _buildConsecutiveDaysSection(),
-            const SizedBox(height: 16),
-            _buildMaGrowthDaysSection(),
+            const SizedBox(height: 20),
+            
+            // 价格相关条件组
+            _buildConditionGroup(
+              title: '价格条件',
+              icon: Icons.trending_up,
+              iconColor: Colors.blue,
+              children: [
+                _buildPctChgSection(),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            _buildDivider(),
+            const SizedBox(height: 20),
+            
+            // 均线相关条件组
+            _buildConditionGroup(
+              title: '均线条件',
+              icon: Icons.show_chart,
+              iconColor: Colors.purple,
+              children: [
+                _buildMaDistanceSection(),
+                const SizedBox(height: 16),
+                _buildMaGrowthDaysSection(),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            _buildDivider(),
+            const SizedBox(height: 20),
+            
+            // 时间相关条件组
+            _buildConditionGroup(
+              title: '时间条件',
+              icon: Icons.access_time,
+              iconColor: Colors.green,
+              children: [
+                _buildConsecutiveDaysSection(),
+              ],
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildConditionGroup({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: iconColor),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: Colors.grey[300],
     );
   }
 
@@ -296,100 +398,89 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
       children: [
         Row(
           children: [
-            Text(
-              '成交额筛选 (亿元)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            const Text(
+              '成交额筛选',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.black87),
             ),
-            Spacer(),
-            Switch(
-              value: _amountRangeConfig.enabled,
-              onChanged: (value) {
-                setState(() {
-                  _amountRangeConfig = AmountRangeConfig(
-                    enabled: value,
-                    minAmount: _amountRangeConfig.minAmount,
-                    maxAmount: _amountRangeConfig.maxAmount,
-                  );
-                });
-              },
-            ),
-            Text(
-              _amountRangeConfig.enabled ? '范围模式' : '阈值模式',
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _amountRangeConfig.enabled ? '范围模式' : '阈值模式',
+                    style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(width: 4),
+                  Switch(
+                    value: _amountRangeConfig.enabled,
+                    onChanged: (value) {
+                      setState(() {
+                        _amountRangeConfig = AmountRangeConfig(
+                          enabled: value,
+                          minAmount: _amountRangeConfig.minAmount,
+                          maxAmount: _amountRangeConfig.maxAmount,
+                        );
+                      });
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         
         if (!_amountRangeConfig.enabled) ...[
           // 阈值模式
-          TextFormField(
-            controller: _amountThresholdController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              hintText: '请输入成交额阈值',
-              border: OutlineInputBorder(),
-              suffixText: '亿元',
-              labelText: '最小成交额',
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[200]!),
             ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return '请输入成交额阈值';
-              }
-              final amount = double.tryParse(value);
-              if (amount == null || amount <= 0) {
-                return '请输入有效的成交额阈值';
-              }
-              return null;
-            },
-            onChanged: (value) {
-              final amount = double.tryParse(value);
-              if (amount != null) {
-                setState(() {
-                  _amountThreshold = amount;
-                });
-              }
-            },
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: _amountThresholds.map((threshold) {
-              return FilterChip(
-                label: Text('${threshold.toStringAsFixed(0)}亿'),
-                selected: _amountThreshold == threshold,
-                onSelected: (selected) {
-                  if (selected) {
-                    setState(() {
-                      _amountThreshold = threshold;
-                      _amountThresholdController.text = threshold.toString();
-                    });
-                  }
-                },
-              );
-            }).toList(),
-          ),
-        ] else ...[
-          // 范围模式
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  initialValue: _amountRangeConfig.minAmount.toString(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: _amountThresholdController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: '最小值',
-                    border: OutlineInputBorder(),
-                    suffixText: '亿',
+                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  decoration: InputDecoration(
+                    hintText: '请输入成交额阈值',
+                    hintStyle: TextStyle(color: Colors.grey[500]),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: BorderSide(color: Colors.blue[400]!),
+                    ),
+                    suffixText: '亿元',
+                    suffixStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
                     labelText: '最小成交额',
+                    labelStyle: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return '请输入最小成交额';
+                      return '请输入成交额阈值';
                     }
                     final amount = double.tryParse(value);
-                    if (amount == null || amount < 0) {
-                      return '请输入有效的最小成交额';
+                    if (amount == null || amount <= 0) {
+                      return '请输入有效的成交额阈值';
                     }
                     return null;
                   },
@@ -397,59 +488,173 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
                     final amount = double.tryParse(value);
                     if (amount != null) {
                       setState(() {
-                        _amountRangeConfig = AmountRangeConfig(
-                          enabled: _amountRangeConfig.enabled,
-                          minAmount: amount,
-                          maxAmount: _amountRangeConfig.maxAmount,
-                        );
+                        _amountThreshold = amount;
                       });
                     }
                   },
                 ),
-              ),
-              const SizedBox(width: 16),
-              Text('至', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextFormField(
-                  initialValue: _amountRangeConfig.maxAmount >= 1000 ? '' : _amountRangeConfig.maxAmount.toString(),
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: '最大值（空=无限制）',
-                    border: OutlineInputBorder(),
-                    suffixText: '亿',
-                    labelText: '最大成交额',
-                  ),
-                  validator: (value) {
-                    if (value != null && value.trim().isNotEmpty) {
-                      final amount = double.tryParse(value);
-                      if (amount == null || amount <= _amountRangeConfig.minAmount) {
-                        return '最大值必须大于最小值';
-                      }
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    double maxAmount = 1000.0; // 默认无上限
-                    if (value.trim().isNotEmpty) {
-                      maxAmount = double.tryParse(value) ?? 1000.0;
-                    }
-                    setState(() {
-                      _amountRangeConfig = AmountRangeConfig(
-                        enabled: _amountRangeConfig.enabled,
-                        minAmount: _amountRangeConfig.minAmount,
-                        maxAmount: maxAmount,
-                      );
-                    });
-                  },
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _amountThresholds.map((threshold) {
+                    return FilterChip(
+                      label: Text(
+                        '${threshold.toStringAsFixed(0)}亿',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: _amountThreshold == threshold ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                      selected: _amountThreshold == threshold,
+                      selectedColor: Colors.blue[100],
+                      checkmarkColor: Colors.blue[700],
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() {
+                            _amountThreshold = threshold;
+                            _amountThresholdController.text = threshold.toString();
+                          });
+                        }
+                      },
+                    );
+                  }).toList(),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '提示：最大值留空表示无上限',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ] else ...[
+          // 范围模式
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: _amountRangeConfig.minAmount.toString(),
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 14, color: Colors.black87),
+                        decoration: InputDecoration(
+                          hintText: '最小值',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.blue[400]!),
+                          ),
+                          suffixText: '亿',
+                          suffixStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          labelText: '最小成交额',
+                          labelStyle: TextStyle(color: Colors.grey[700], fontSize: 13),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return '请输入最小成交额';
+                          }
+                          final amount = double.tryParse(value);
+                          if (amount == null || amount < 0) {
+                            return '请输入有效的最小成交额';
+                          }
+                          return null;
+                        },
+                        onChanged: (value) {
+                          final amount = double.tryParse(value);
+                          if (amount != null) {
+                            setState(() {
+                              _amountRangeConfig = AmountRangeConfig(
+                                enabled: _amountRangeConfig.enabled,
+                                minAmount: amount,
+                                maxAmount: _amountRangeConfig.maxAmount,
+                              );
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Text(
+                        '至',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: _amountRangeConfig.maxAmount >= 1000 ? '' : _amountRangeConfig.maxAmount.toString(),
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 14, color: Colors.black87),
+                        decoration: InputDecoration(
+                          hintText: '最大值（空=无限制）',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(color: Colors.blue[400]!),
+                          ),
+                          suffixText: '亿',
+                          suffixStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          labelText: '最大成交额',
+                          labelStyle: TextStyle(color: Colors.grey[700], fontSize: 13),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        validator: (value) {
+                          if (value != null && value.trim().isNotEmpty) {
+                            final amount = double.tryParse(value);
+                            if (amount == null || amount <= _amountRangeConfig.minAmount) {
+                              return '最大值必须大于最小值';
+                            }
+                          }
+                          return null;
+                        },
+                        onChanged: (value) {
+                          double maxAmount = 1000.0; // 默认无上限
+                          if (value.trim().isNotEmpty) {
+                            maxAmount = double.tryParse(value) ?? 1000.0;
+                          }
+                          setState(() {
+                            _amountRangeConfig = AmountRangeConfig(
+                              enabled: _amountRangeConfig.enabled,
+                              minAmount: _amountRangeConfig.minAmount,
+                              maxAmount: maxAmount,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '提示：最大值留空表示无上限',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600], fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
           ),
         ],
       ],
@@ -460,29 +665,47 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '选择日期',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: 8),
         InkWell(
           onTap: _selectDate,
+          borderRadius: BorderRadius.circular(6),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(4),
+              color: Colors.white,
+              border: Border.all(color: Colors.grey[200]!),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: Row(
               children: [
-                Icon(Icons.calendar_today, color: Colors.grey[600]),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(Icons.calendar_today, color: Colors.orange[700], size: 20),
+                ),
                 const SizedBox(width: 12),
-                Text(
-                  DateFormat('yyyy-MM-dd').format(_selectedDate),
-                  style: const TextStyle(fontSize: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '筛选日期',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      DateFormat('yyyy-MM-dd').format(_selectedDate),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
                 ),
                 const Spacer(),
-                Icon(Icons.arrow_drop_down, color: Colors.grey[600]),
+                Icon(Icons.arrow_drop_down, color: Colors.orange[700], size: 24),
               ],
             ),
           ),
@@ -507,20 +730,20 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             ),
             const Text(
               '涨跌幅筛选',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
           ],
         ),
         if (_enablePctChg) ...[
           const SizedBox(height: 12),
-          const Text('涨跌幅范围:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          const Text('涨跌幅范围:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey)),
           const SizedBox(height: 8),
           // 使用更紧凑的布局
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
               border: Border.all(color: Colors.grey[300]!),
             ),
             child: Column(
@@ -635,29 +858,45 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             ),
             const Text(
               '均线偏离筛选',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
           ],
         ),
         if (_enableMaDistance) ...[
-          const SizedBox(height: 8),
-          _buildMaDistanceRow('MA5', _ma5Config, (config) {
-            setState(() {
-              _ma5Config = config;
-            });
-          }),
-          const SizedBox(height: 8),
-          _buildMaDistanceRow('MA10', _ma10Config, (config) {
-            setState(() {
-              _ma10Config = config;
-            });
-          }),
-          const SizedBox(height: 8),
-          _buildMaDistanceRow('MA20', _ma20Config, (config) {
-            setState(() {
-              _ma20Config = config;
-            });
-          }),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Column(
+              children: [
+                _buildMaDistanceRow('MA5', _ma5Config, (config) {
+                  setState(() {
+                    _ma5Config = config;
+                  });
+                }),
+                const SizedBox(height: 6),
+                Divider(height: 1, color: Colors.grey[200]),
+                const SizedBox(height: 6),
+                _buildMaDistanceRow('MA10', _ma10Config, (config) {
+                  setState(() {
+                    _ma10Config = config;
+                  });
+                }),
+                const SizedBox(height: 6),
+                Divider(height: 1, color: Colors.grey[200]),
+                const SizedBox(height: 6),
+                _buildMaDistanceRow('MA20', _ma20Config, (config) {
+                  setState(() {
+                    _ma20Config = config;
+                  });
+                }),
+              ],
+            ),
+          ),
         ],
       ],
     );
@@ -676,18 +915,35 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
           },
         ),
         SizedBox(
-          width: 60,
-          child: Text(maName),
+          width: 50,
+          child: Text(
+            maName,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
         ),
-        const Text('偏离: '),
+        const Text('偏离: ', style: TextStyle(fontSize: 13, color: Colors.grey)),
         SizedBox(
-          width: 80,
+          width: 70,
           child: TextFormField(
             initialValue: config.distance.toString(),
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            style: const TextStyle(fontSize: 13),
+            decoration: InputDecoration(
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: BorderSide(color: Colors.blue[400]!),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               suffixText: '%',
+              suffixStyle: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
             onChanged: (value) {
               final distance = double.tryParse(value);
@@ -720,59 +976,123 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             ),
             const Text(
               '连续天数筛选',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
           ],
         ),
         if (_enableConsecutiveDays) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text('连续 '),
-              DropdownButton<int>(
-                value: _consecutiveDaysConfig.days,
-                items: _consecutiveDaysOptions.map((days) {
-                  return DropdownMenuItem(
-                    value: days,
-                    child: Text('$days'),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _consecutiveDaysConfig = ConsecutiveDaysConfig(
-                        enabled: _consecutiveDaysConfig.enabled,
-                        days: value,
-                        maType: _consecutiveDaysConfig.maType,
-                      );
-                    });
-                  }
-                },
-              ),
-              const Text(' 天收盘价高于 '),
-              DropdownButton<String>(
-                value: _consecutiveDaysConfig.maType,
-                items: _maTypes.map((maType) {
-                  String displayName = maType == 'ma5' ? 'MA5' : 
-                                      maType == 'ma10' ? 'MA10' : 'MA20';
-                  return DropdownMenuItem(
-                    value: maType,
-                    child: Text(displayName),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _consecutiveDaysConfig = ConsecutiveDaysConfig(
-                        enabled: _consecutiveDaysConfig.enabled,
-                        days: _consecutiveDaysConfig.days,
-                        maType: value,
-                      );
-                    });
-                  }
-                },
-              ),
-            ],
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('连续', style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        border: Border.all(color: Colors.green[300]!),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: DropdownButton<int>(
+                        value: _consecutiveDaysConfig.days,
+                        items: _consecutiveDaysOptions.map((days) {
+                          return DropdownMenuItem(
+                            value: days,
+                            child: Text(
+                              '$days',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _consecutiveDaysConfig = ConsecutiveDaysConfig(
+                                enabled: _consecutiveDaysConfig.enabled,
+                                days: value,
+                                maType: _consecutiveDaysConfig.maType,
+                              );
+                            });
+                          }
+                        },
+                        underline: const SizedBox.shrink(),
+                        isDense: true,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                        icon: Icon(Icons.arrow_drop_down, color: Colors.green[700], size: 20),
+                        dropdownColor: Colors.white,
+                      ),
+                    ),
+                    const Text('天收盘价高于', style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        border: Border.all(color: Colors.green[300]!),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: DropdownButton<String>(
+                        value: _consecutiveDaysConfig.maType,
+                        items: _maTypes.map((maType) {
+                          String displayName = maType == 'ma5' ? 'MA5' : 
+                                              maType == 'ma10' ? 'MA10' : 'MA20';
+                          return DropdownMenuItem(
+                            value: maType,
+                            child: Text(
+                              displayName,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _consecutiveDaysConfig = ConsecutiveDaysConfig(
+                                enabled: _consecutiveDaysConfig.enabled,
+                                days: _consecutiveDaysConfig.days,
+                                maType: value,
+                              );
+                            });
+                          }
+                        },
+                        underline: const SizedBox.shrink(),
+                        isDense: true,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                        icon: Icon(Icons.arrow_drop_down, color: Colors.green[700], size: 20),
+                        dropdownColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ],
@@ -800,43 +1120,59 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             ),
             const Text(
               '均线连续增长天数筛选',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
           ],
         ),
         if (_maGrowthDaysConfig.hasAnyEnabled) ...[
-          const SizedBox(height: 8),
-          // MA5配置
-          _buildMaGrowthDaysItem(
-            'MA5',
-            _maGrowthDaysConfig.ma5Config,
-            (config) {
-              setState(() {
-                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma5Config: config);
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          // MA10配置
-          _buildMaGrowthDaysItem(
-            'MA10',
-            _maGrowthDaysConfig.ma10Config,
-            (config) {
-              setState(() {
-                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma10Config: config);
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          // MA20配置
-          _buildMaGrowthDaysItem(
-            'MA20',
-            _maGrowthDaysConfig.ma20Config,
-            (config) {
-              setState(() {
-                _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma20Config: config);
-              });
-            },
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Column(
+              children: [
+                // MA5配置
+                _buildMaGrowthDaysItem(
+                  'MA5',
+                  _maGrowthDaysConfig.ma5Config,
+                  (config) {
+                    setState(() {
+                      _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma5Config: config);
+                    });
+                  },
+                ),
+                const SizedBox(height: 6),
+                Divider(height: 1, color: Colors.grey[200]),
+                const SizedBox(height: 6),
+                // MA10配置
+                _buildMaGrowthDaysItem(
+                  'MA10',
+                  _maGrowthDaysConfig.ma10Config,
+                  (config) {
+                    setState(() {
+                      _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma10Config: config);
+                    });
+                  },
+                ),
+                const SizedBox(height: 6),
+                Divider(height: 1, color: Colors.grey[200]),
+                const SizedBox(height: 6),
+                // MA20配置
+                _buildMaGrowthDaysItem(
+                  'MA20',
+                  _maGrowthDaysConfig.ma20Config,
+                  (config) {
+                    setState(() {
+                      _maGrowthDaysConfig = _maGrowthDaysConfig.copyWith(ma20Config: config);
+                    });
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ],
@@ -856,24 +1192,66 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
             onConfigChanged(config.copyWith(enabled: value ?? false));
           },
         ),
-        Text('$maName 连续增长 '),
-        DropdownButton<int>(
-          value: config.days,
-          items: _consecutiveDaysOptions.map((days) {
-            return DropdownMenuItem(
-              value: days,
-              child: Text('$days'),
-            );
-          }).toList(),
-          onChanged: config.enabled
-              ? (value) {
-                  if (value != null) {
-                    onConfigChanged(config.copyWith(days: value));
-                  }
-                }
-              : null,
+        SizedBox(
+          width: 50,
+          child: Text(
+            maName,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
+          ),
         ),
-        const Text(' 天'),
+        Expanded(
+          child: Row(
+            children: [
+              const Text('连续增长 ', style: TextStyle(fontSize: 13, color: Colors.black87)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: config.enabled ? Colors.purple[50] : Colors.grey[100],
+                  border: Border.all(
+                    color: config.enabled ? Colors.purple[300]! : Colors.grey[300]!,
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: DropdownButton<int>(
+                  value: config.days,
+                  items: _consecutiveDaysOptions.map((days) {
+                    return DropdownMenuItem(
+                      value: days,
+                      child: Text(
+                        '$days',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: config.enabled
+                      ? (value) {
+                          if (value != null) {
+                            onConfigChanged(config.copyWith(days: value));
+                          }
+                        }
+                      : null,
+                  underline: const SizedBox.shrink(),
+                  isDense: true,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: config.enabled ? Colors.black87 : Colors.grey[600],
+                  ),
+                  icon: Icon(
+                    Icons.arrow_drop_down,
+                    color: config.enabled ? Colors.purple[700] : Colors.grey[600],
+                  ),
+                  dropdownColor: Colors.white,
+                ),
+              ),
+              const Text(' 天', style: TextStyle(fontSize: 13, color: Colors.black87)),
+            ],
+          ),
+        ),
       ],
     );
   }
