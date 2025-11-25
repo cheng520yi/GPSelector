@@ -420,9 +420,18 @@ class KlineChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (klineDataList.isEmpty) return;
 
-    // 根据副图数量计算K线图和成交量图的高度
+    // 为MACD和BOLL标签预留高度
+    const labelAreaHeight = 25.0; // 标签区域高度
+    
+    // 计算需要标签区域的副图数量（MACD和BOLL）
+    int labelAreaCount = 0;
+    if (subChartCount >= 2 && macdDataList.isNotEmpty) labelAreaCount++;
+    if (subChartCount >= 3 && bollDataList.isNotEmpty) labelAreaCount++;
+    
+    // 从可用高度中扣除标签区域的高度
     final klineRatio = _getKlineChartHeightRatio(subChartCount);
-    final availableHeight = size.height - topPadding - bottomPadding - chartGap * subChartCount;
+    final baseAvailableHeight = size.height - topPadding - bottomPadding - chartGap * subChartCount;
+    final availableHeight = baseAvailableHeight - labelAreaCount * labelAreaHeight;
     final klineChartHeight = availableHeight * klineRatio;
     final subChartHeight = availableHeight * (1 - klineRatio) / subChartCount;
 
@@ -541,7 +550,7 @@ class KlineChartPainter extends CustomPainter {
     // 绘制K线图背景网格
     _drawKlineGrid(canvas, size, maxPrice, minPrice, klineChartHeight);
 
-    // 绘制价格标签
+    // 绘制价格标签（Y轴刻度值）
     _drawPriceLabels(canvas, size, maxPrice, minPrice, klineChartHeight);
 
     // 先绘制K线（在均线下方）
@@ -555,6 +564,16 @@ class KlineChartPainter extends CustomPainter {
     print('🔍 开始绘制副图: subChartCount=$subChartCount, macdDataList.length=${macdDataList.length}, bollDataList.length=${bollDataList.length}');
     for (int i = 0; i < subChartCount; i++) {
       print('🔍 绘制第${i + 1}个副图: i=$i');
+      // 判断是否需要标签区域（MACD或BOLL）
+      final needsLabelArea = (i == 1 && macdDataList.isNotEmpty) || (i == 2 && bollDataList.isNotEmpty);
+      // 图表高度保持不变（subChartHeight），标签区域在图表上方
+      final chartTop = needsLabelArea ? currentSubChartTop + labelAreaHeight : currentSubChartTop;
+      
+      // 计算副图底部位置（用于绘制底部线条）
+      final subChartBottom = needsLabelArea 
+          ? chartTop + subChartHeight 
+          : currentSubChartTop + subChartHeight;
+      
       // 第1个副图（索引0）：成交量
       if (i == 0) {
         print('📊 绘制成交量图表（第1个副图）');
@@ -565,8 +584,10 @@ class KlineChartPainter extends CustomPainter {
       else if (i == 1) {
         if (macdDataList.isNotEmpty) {
         print('✅ 绘制MACD图表（第2个副图）');
-        _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
-          _drawMacdLabels(canvas, size, visibleData, macdDataList, selectedIndex, currentSubChartTop, subChartHeight);
+        // 先绘制标签（在图表上方）
+          _drawMacdLabels(canvas, size, visibleData, macdDataList, selectedIndex, currentSubChartTop, labelAreaHeight);
+        // 再绘制图表（在标签下方，保持原来的高度）
+        _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, chartTop, subChartHeight);
         } else {
           print('⚠️ MACD数据为空，绘制成交量图表（第2个副图）');
           _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
@@ -577,8 +598,10 @@ class KlineChartPainter extends CustomPainter {
       else if (i == 2) {
         if (bollDataList.isNotEmpty) {
         print('✅ 绘制BOLL图表（第3个副图）');
-        _drawBollChart(canvas, size, visibleData, bollDataList, chartWidth, currentSubChartTop, subChartHeight);
-          _drawBollLabels(canvas, size, visibleData, bollDataList, selectedIndex, currentSubChartTop, subChartHeight);
+        // 先绘制标签（在图表上方）
+          _drawBollLabels(canvas, size, visibleData, bollDataList, selectedIndex, currentSubChartTop, labelAreaHeight);
+        // 再绘制图表（在标签下方，保持原来的高度）
+        _drawBollChart(canvas, size, visibleData, bollDataList, chartWidth, chartTop, subChartHeight);
       } else {
           print('⚠️ BOLL数据为空，绘制成交量图表（第3个副图）');
           _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
@@ -591,7 +614,19 @@ class KlineChartPainter extends CustomPainter {
         _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
         _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
       }
-      currentSubChartTop += subChartHeight + chartGap;
+      
+      // 在每个副图底部绘制灰色水平线
+      final bottomLinePaint = Paint()
+        ..color = Colors.grey[300]!
+        ..strokeWidth = 1.0;
+      canvas.drawLine(
+        Offset(0, subChartBottom),
+        Offset(chartWidth, subChartBottom),
+        bottomLinePaint,
+      );
+      
+      // 更新下一个副图的顶部位置（如果有标签区域，需要加上标签高度）
+      currentSubChartTop += subChartHeight + (needsLabelArea ? labelAreaHeight : 0) + chartGap;
     }
 
     // 绘制选中竖线（如果有选中）
@@ -1409,29 +1444,29 @@ class KlineChartPainter extends CustomPainter {
     
     print('🔍 MACD Y轴范围: min=$minMacd, max=$maxMacd, range=$finalMacdRange');
 
-    // 绘制MACD网格线（0轴和水平线）
-    final gridPaint = Paint()
-      ..color = Colors.grey[300]!
-      ..strokeWidth = 0.5;
-    
-    // 绘制0轴（根据实际Y轴范围动态计算0轴位置）
-    // 0轴的Y坐标 = 图表顶部 + (最大值 - 0值) / (最大值 - 最小值) * 图表高度
-    final zeroY = macdChartTop + (maxMacd - 0.0) / finalMacdRange * macdChartHeight;
-    canvas.drawLine(
-      Offset(0, zeroY),
-      Offset(chartWidth, zeroY),
-      gridPaint,
-    );
-    
-    // 绘制其他水平网格线
-    for (int i = 1; i <= 2; i++) {
-      final y = macdChartTop + macdChartHeight * i / 4;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(chartWidth, y),
-        gridPaint,
-      );
-    }
+    // 不绘制MACD水平网格线（Y轴刻度线）
+    // final gridPaint = Paint()
+    //   ..color = Colors.grey[300]!
+    //   ..strokeWidth = 0.5;
+    // 
+    // // 绘制0轴（根据实际Y轴范围动态计算0轴位置）
+    // // 0轴的Y坐标 = 图表顶部 + (最大值 - 0值) / (最大值 - 最小值) * 图表高度
+    // final zeroY = macdChartTop + (maxMacd - 0.0) / finalMacdRange * macdChartHeight;
+    // canvas.drawLine(
+    //   Offset(0, zeroY),
+    //   Offset(chartWidth, zeroY),
+    //   gridPaint,
+    // );
+    // 
+    // // 绘制其他水平网格线
+    // for (int i = 1; i <= 2; i++) {
+    //   final y = macdChartTop + macdChartHeight * i / 4;
+    //   canvas.drawLine(
+    //     Offset(0, y),
+    //     Offset(chartWidth, y),
+    //     gridPaint,
+    //   );
+    // }
 
     // 动态计算K线宽度和间距（与_drawCandles保持一致）
     double dynamicCandleWidth = candleWidth;
@@ -1732,20 +1767,20 @@ class KlineChartPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    // 绘制MACD标签（覆盖在图表上，在图表内部显示）
-    for (int i = 0; i <= 4; i++) {
-      final value = maxMacd - (maxMacd - minMacd) * i / 4;
-      textPainter.text = TextSpan(
-        text: value.toStringAsFixed(2),
-        style: textStyle,
-      );
-      textPainter.layout();
-      final y = macdChartTop + macdChartHeight * i / 4;
-      textPainter.paint(
-        canvas,
-        Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
-      );
-    }
+    // 不绘制MACD Y轴刻度值
+    // for (int i = 0; i <= 4; i++) {
+    //   final value = maxMacd - (maxMacd - minMacd) * i / 4;
+    //   textPainter.text = TextSpan(
+    //     text: value.toStringAsFixed(2),
+    //     style: textStyle,
+    //   );
+    //   textPainter.layout();
+    //   final y = macdChartTop + macdChartHeight * i / 4;
+    //   textPainter.paint(
+    //     canvas,
+    //     Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
+    //   );
+    // }
 
     // 绘制MACD指标名称和数值（在图表右上角，参考BOLL标签的样式）
     // 如果有选中，显示选中日期的数据；否则显示最新的数据
@@ -1785,24 +1820,65 @@ class KlineChartPainter extends CustomPainter {
       final deaTrend = getTrend(displayData.dea, prevDea);
       final macdTrend = getTrend(displayData.macd, prevMacd);
       
-      // 格式：MACD ▼ DIF:-0.02↓ DEA:-0.02↓ M:-0.01↓（参考图2格式）
-      final labelText = 'MACD ▼ DIF:${displayData.dif.toStringAsFixed(2)}$difTrend DEA:${displayData.dea.toStringAsFixed(2)}$deaTrend M:${displayData.macd.toStringAsFixed(2)}$macdTrend';
+      // 箭头颜色：上涨用红色，下跌用绿色
+      final difTrendColor = difTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
+      final deaTrendColor = deaTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
+      final macdTrendColor = macdTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
       
-      final labelTextStyle = TextStyle(
+      // 使用RichText分别设置文本和箭头的样式
+      final baseTextStyle = TextStyle(
         color: Colors.grey[800],
         fontSize: 10,
         fontWeight: FontWeight.w500,
       );
+      final arrowTextStyle = TextStyle(
+        color: Colors.grey[800],
+        fontSize: 14, // 箭头更大
+        fontWeight: FontWeight.bold,
+      );
       
       final labelPainter = TextPainter(
-        text: TextSpan(text: labelText, style: labelTextStyle),
+        text: TextSpan(
+          children: [
+            TextSpan(text: 'MACD ▼ DIF:', style: baseTextStyle),
+            TextSpan(text: displayData.dif.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: difTrend, style: arrowTextStyle.copyWith(color: difTrendColor)),
+            TextSpan(text: ' DEA:', style: baseTextStyle),
+            TextSpan(text: displayData.dea.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: deaTrend, style: arrowTextStyle.copyWith(color: deaTrendColor)),
+            TextSpan(text: ' M:', style: baseTextStyle),
+            TextSpan(text: displayData.macd.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: macdTrend, style: arrowTextStyle.copyWith(color: macdTrendColor)),
+          ],
+        ),
         textAlign: TextAlign.left,
         textDirection: TextDirection.ltr,
       );
       labelPainter.layout();
+      
+      // 计算标签位置（在标签区域内的右上角）
+      const padding = 4.0;
+      const backgroundPadding = 2.0;
+      final labelX = size.width - labelPainter.width - padding;
+      // 标签在标签区域内的垂直居中位置
+      final labelY = macdChartTop + (macdChartHeight - labelPainter.height) / 2;
+      
+      // 先绘制白色背景矩形（接近透明）
+      final backgroundRect = Rect.fromLTWH(
+        labelX - backgroundPadding,
+        labelY - backgroundPadding,
+        labelPainter.width + backgroundPadding * 2,
+        labelPainter.height + backgroundPadding * 2,
+      );
+      final backgroundPaint = Paint()
+        ..color = Colors.white.withOpacity(0.15) // 接近透明的白色背景，15%不透明度
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(backgroundRect, backgroundPaint);
+      
+      // 再绘制文本（在背景之上）
       labelPainter.paint(
         canvas,
-        Offset(size.width - labelPainter.width - 4, macdChartTop + 2),
+        Offset(labelX, labelY),
       );
     }
   }
@@ -1876,18 +1952,18 @@ class KlineChartPainter extends CustomPainter {
     final finalPriceRange = maxPrice - minPrice;
     if (finalPriceRange == 0) return;
 
-    // 绘制网格线
-    final gridPaint = Paint()
-      ..color = Colors.grey[300]!
-      ..strokeWidth = 0.5;
-    for (int i = 0; i <= 4; i++) {
-      final y = bollChartTop + bollChartHeight * i / 4;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(chartWidth, y),
-        gridPaint,
-      );
-    }
+    // 不绘制BOLL水平网格线（Y轴刻度线）
+    // final gridPaint = Paint()
+    //   ..color = Colors.grey[300]!
+    //   ..strokeWidth = 0.5;
+    // for (int i = 0; i <= 4; i++) {
+    //   final y = bollChartTop + bollChartHeight * i / 4;
+    //   canvas.drawLine(
+    //     Offset(0, y),
+    //     Offset(chartWidth, y),
+    //     gridPaint,
+    //   );
+    // }
 
     // 绘制K线（使用前复权价格，叠加在BOLL图表中）
     _drawCandlesInBollChart(canvas, size, visibleData, maxPrice, minPrice, finalPriceRange, 
@@ -2106,20 +2182,20 @@ class KlineChartPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    // 绘制BOLL标签（覆盖在图表上，在图表内部显示）
-    for (int i = 0; i <= 4; i++) {
-      final value = maxBoll - (maxBoll - minBoll) * i / 4;
-      textPainter.text = TextSpan(
-        text: value.toStringAsFixed(2),
-        style: textStyle,
-      );
-      textPainter.layout();
-      final y = bollChartTop + bollChartHeight * i / 4;
-      textPainter.paint(
-        canvas,
-        Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
-      );
-    }
+    // 不绘制BOLL Y轴刻度值
+    // for (int i = 0; i <= 4; i++) {
+    //   final value = maxBoll - (maxBoll - minBoll) * i / 4;
+    //   textPainter.text = TextSpan(
+    //     text: value.toStringAsFixed(2),
+    //     style: textStyle,
+    //   );
+    //   textPainter.layout();
+    //   final y = bollChartTop + bollChartHeight * i / 4;
+    //   textPainter.paint(
+    //     canvas,
+    //     Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
+    //   );
+    // }
 
     // 绘制BOLL指标名称和数值（在图表右上角）
     // 如果有选中，显示选中日期的数据；否则显示最新的数据
@@ -2159,23 +2235,65 @@ class KlineChartPainter extends CustomPainter {
       final middleTrend = getTrend(displayData.middle, prevMiddle);
       final lowerTrend = getTrend(displayData.lower, prevLower);
       
-      final labelText = 'BOLL ▼ MID:${displayData.middle.toStringAsFixed(2)}$middleTrend UP:${displayData.upper.toStringAsFixed(2)}$upperTrend LOW:${displayData.lower.toStringAsFixed(2)}$lowerTrend';
+      // 箭头颜色：上涨用红色，下跌用绿色
+      final middleTrendColor = middleTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
+      final upperTrendColor = upperTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
+      final lowerTrendColor = lowerTrend == '↑' ? Colors.red[700]! : Colors.green[700]!;
       
-      final labelTextStyle = TextStyle(
+      // 使用RichText分别设置文本和箭头的样式
+      final baseTextStyle = TextStyle(
         color: Colors.grey[800],
         fontSize: 10,
         fontWeight: FontWeight.w500,
       );
+      final arrowTextStyle = TextStyle(
+        color: Colors.grey[800],
+        fontSize: 14, // 箭头更大
+        fontWeight: FontWeight.bold,
+      );
       
       final labelPainter = TextPainter(
-        text: TextSpan(text: labelText, style: labelTextStyle),
+        text: TextSpan(
+          children: [
+            TextSpan(text: 'BOLL ▼ MID:', style: baseTextStyle),
+            TextSpan(text: displayData.middle.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: middleTrend, style: arrowTextStyle.copyWith(color: middleTrendColor)),
+            TextSpan(text: ' UP:', style: baseTextStyle),
+            TextSpan(text: displayData.upper.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: upperTrend, style: arrowTextStyle.copyWith(color: upperTrendColor)),
+            TextSpan(text: ' LOW:', style: baseTextStyle),
+            TextSpan(text: displayData.lower.toStringAsFixed(2), style: baseTextStyle),
+            TextSpan(text: lowerTrend, style: arrowTextStyle.copyWith(color: lowerTrendColor)),
+          ],
+        ),
         textAlign: TextAlign.left,
         textDirection: TextDirection.ltr,
       );
       labelPainter.layout();
+      
+      // 计算标签位置（在标签区域内的右上角）
+      const padding = 4.0;
+      const backgroundPadding = 2.0;
+      final labelX = size.width - labelPainter.width - padding;
+      // 标签在标签区域内的垂直居中位置
+      final labelY = bollChartTop + (bollChartHeight - labelPainter.height) / 2;
+      
+      // 先绘制白色背景矩形（接近透明）
+      final backgroundRect = Rect.fromLTWH(
+        labelX - backgroundPadding,
+        labelY - backgroundPadding,
+        labelPainter.width + backgroundPadding * 2,
+        labelPainter.height + backgroundPadding * 2,
+      );
+      final backgroundPaint = Paint()
+        ..color = Colors.white.withOpacity(0.15) // 接近透明的白色背景，15%不透明度
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(backgroundRect, backgroundPaint);
+      
+      // 再绘制文本（在背景之上）
       labelPainter.paint(
         canvas,
-        Offset(size.width - labelPainter.width - 4, bollChartTop + 2),
+        Offset(labelX, labelY),
       );
     }
   }
