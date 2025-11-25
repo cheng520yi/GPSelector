@@ -564,8 +564,8 @@ class KlineChartPainter extends CustomPainter {
       // 第2个副图（索引1）：MACD指标
       else if (i == 1) {
         if (macdDataList.isNotEmpty) {
-          print('✅ 绘制MACD图表（第2个副图）');
-          _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
+        print('✅ 绘制MACD图表（第2个副图）');
+        _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
           _drawMacdLabels(canvas, size, visibleData, macdDataList, selectedIndex, currentSubChartTop, subChartHeight);
         } else {
           print('⚠️ MACD数据为空，绘制成交量图表（第2个副图）');
@@ -576,10 +576,10 @@ class KlineChartPainter extends CustomPainter {
       // 第3个副图（索引2）：BOLL指标
       else if (i == 2) {
         if (bollDataList.isNotEmpty) {
-          print('✅ 绘制BOLL图表（第3个副图）');
-          _drawBollChart(canvas, size, visibleData, bollDataList, chartWidth, currentSubChartTop, subChartHeight);
+        print('✅ 绘制BOLL图表（第3个副图）');
+        _drawBollChart(canvas, size, visibleData, bollDataList, chartWidth, currentSubChartTop, subChartHeight);
           _drawBollLabels(canvas, size, visibleData, bollDataList, selectedIndex, currentSubChartTop, subChartHeight);
-        } else {
+      } else {
           print('⚠️ BOLL数据为空，绘制成交量图表（第3个副图）');
           _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
           _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
@@ -1536,16 +1536,16 @@ class KlineChartPainter extends CustomPainter {
       // 对于正值：从mValueY（顶部）向下延伸到zeroY（底部）
       // 对于负值：从zeroY（顶部）向下延伸到mValueY（底部）
       // 使用Rect.fromLTWH时，Y坐标是矩形顶部，height是向下延伸的高度
-      canvas.drawRect(
-        Rect.fromLTWH(
+        canvas.drawRect(
+          Rect.fromLTWH(
           x - macdBarWidth / 2,
           barTopY,
           macdBarWidth,
-          macdHeight,
-        ),
-        macdPaint,
-      );
-    }
+            macdHeight,
+          ),
+          macdPaint,
+        );
+      }
 
     // 绘制DIF线（黑色）- 使用visibleData和macdMap，保持索引对应关系
     bool hasValidDif = false;
@@ -2012,8 +2012,8 @@ class KlineChartPainter extends CustomPainter {
       if (boll != null) {
         final value = getValue(boll);
         if (!value.isNaN && !value.isInfinite) {
-          final x = i * candleTotalWidth + dynamicCandleWidth / 2;
-          final y = chartTop + chartHeight - ((value - minBoll) / bollRange * chartHeight);
+        final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+        final y = chartTop + chartHeight - ((value - minBoll) / bollRange * chartHeight);
           validPoints.add(Offset(x, y));
         }
       }
@@ -2050,7 +2050,7 @@ class KlineChartPainter extends CustomPainter {
           validPoints[i].dx,
           validPoints[i].dy,
         );
-      } else {
+        } else {
         // 中间点：使用三次贝塞尔曲线，计算更平滑的控制点
         final prevPoint = validPoints[i - 1];
         final currentPoint = validPoints[i];
@@ -2064,20 +2064,20 @@ class KlineChartPainter extends CustomPainter {
         
         // 使用张力系数控制曲线的平滑程度
         final tension = 0.3;
-        final cp1 = Offset(
+              final cp1 = Offset(
           prevPoint.dx + dx1 * tension,
           prevPoint.dy + dy1 * tension,
-        );
-        final cp2 = Offset(
+              );
+              final cp2 = Offset(
           currentPoint.dx - dx2 * tension,
           currentPoint.dy - dy2 * tension,
-        );
-        
-        path.cubicTo(
-          cp1.dx, cp1.dy,
-          cp2.dx, cp2.dy,
+              );
+              
+              path.cubicTo(
+                cp1.dx, cp1.dy,
+                cp2.dx, cp2.dy,
           currentPoint.dx, currentPoint.dy,
-        );
+              );
       }
     }
 

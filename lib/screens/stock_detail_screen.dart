@@ -140,10 +140,10 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       
       // 先获取K线数据
       List<KlineData> klineDataList = await StockApiService.getKlineData(
-        tsCode: widget.stockInfo.tsCode,
-        kLineType: _selectedChartType, // 使用选择的图表类型
-        days: requestDays,
-        stockName: widget.stockInfo.name, // 传入股票名称，用于判断是否为指数
+          tsCode: widget.stockInfo.tsCode,
+          kLineType: _selectedChartType, // 使用选择的图表类型
+          days: requestDays,
+          stockName: widget.stockInfo.name, // 传入股票名称，用于判断是否为指数
       );
       
       // 使用stk_factor接口获取MACD和BOLL数据（目前只支持日K）
@@ -154,7 +154,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
               endDate: endDateStr,
             )
           : <String, dynamic>{'macd': <MacdData>[], 'boll': <BollData>[]};
-      
+
       final macdDataList = factorData['macd'] as List<MacdData>? ?? <MacdData>[];
       final bollDataList = factorData['boll'] as List<BollData>? ?? <BollData>[];
       final qfqPriceMap = factorData['qfq_prices'] as Map<String, Map<String, double>>? ?? <String, Map<String, double>>{};

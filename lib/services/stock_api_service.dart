@@ -1469,17 +1469,17 @@ class StockApiService {
                 // 解析MACD数据（注意：字段名是macd，不是macd_macd）
                 if (macdDifIndex >= 0 && macdDeaIndex >= 0 && macdIndex >= 0) {
                   if (item.length > macdDifIndex && item.length > macdDeaIndex && item.length > macdIndex) {
-                    final dif = double.tryParse(item[macdDifIndex]?.toString() ?? '0') ?? 0.0;
-                    final dea = double.tryParse(item[macdDeaIndex]?.toString() ?? '0') ?? 0.0;
+                  final dif = double.tryParse(item[macdDifIndex]?.toString() ?? '0') ?? 0.0;
+                  final dea = double.tryParse(item[macdDeaIndex]?.toString() ?? '0') ?? 0.0;
                     final macd = double.tryParse(item[macdIndex]?.toString() ?? '0') ?? 0.0;
-                    
-                    macdDataList.add(MacdData(
-                      tsCode: tsCode,
-                      tradeDate: formattedDate,
-                      dif: dif,
-                      dea: dea,
-                      macd: macd,
-                    ));
+
+                  macdDataList.add(MacdData(
+                    tsCode: tsCode,
+                    tradeDate: formattedDate,
+                    dif: dif,
+                    dea: dea,
+                    macd: macd,
+                  ));
                   } else {
                     print('⚠️ MACD数据项长度不足: item.length=${item.length}, 需要至少${[macdDifIndex, macdDeaIndex, macdIndex].reduce((a, b) => a > b ? a : b) + 1}');
                   }
@@ -1490,20 +1490,20 @@ class StockApiService {
                 // 解析BOLL数据
                 if (bollUpperIndex >= 0 && bollMidIndex >= 0 && bollLowerIndex >= 0) {
                   if (item.length > bollUpperIndex && item.length > bollMidIndex && item.length > bollLowerIndex) {
-                    final upper = double.tryParse(item[bollUpperIndex]?.toString() ?? '0') ?? 0.0;
-                    final mid = double.tryParse(item[bollMidIndex]?.toString() ?? '0') ?? 0.0;
-                    final lower = double.tryParse(item[bollLowerIndex]?.toString() ?? '0') ?? 0.0;
-                    
-                    bollDataList.add(BollData(
-                      tsCode: tsCode,
-                      tradeDate: formattedDate,
-                      upper: upper,
-                      middle: mid,
-                      lower: lower,
-                    ));
+                  final upper = double.tryParse(item[bollUpperIndex]?.toString() ?? '0') ?? 0.0;
+                  final mid = double.tryParse(item[bollMidIndex]?.toString() ?? '0') ?? 0.0;
+                  final lower = double.tryParse(item[bollLowerIndex]?.toString() ?? '0') ?? 0.0;
+
+                  bollDataList.add(BollData(
+                    tsCode: tsCode,
+                    tradeDate: formattedDate,
+                    upper: upper,
+                    middle: mid,
+                    lower: lower,
+                  ));
                   } else {
                     print('⚠️ BOLL数据项长度不足: item.length=${item.length}, 需要至少${[bollUpperIndex, bollMidIndex, bollLowerIndex].reduce((a, b) => a > b ? a : b) + 1}');
-                  }
+                }
                 } else {
                   print('⚠️ BOLL字段索引无效: upper=$bollUpperIndex, mid=$bollMidIndex, lower=$bollLowerIndex (字段列表: $fields)');
                 }
@@ -1540,7 +1540,7 @@ class StockApiService {
     } catch (e) {
       print('❌ 获取stk_factor数据异常: $e');
     }
-    
+
     return {
       'macd': <MacdData>[],
       'boll': <BollData>[],
