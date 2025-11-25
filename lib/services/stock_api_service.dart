@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
+import '../models/boll_data.dart';
 import 'batch_optimizer.dart';
 import 'log_service.dart';
 import 'console_capture_service.dart';
@@ -1184,6 +1185,7 @@ class StockApiService {
     required String kLineType,
     int days = 60,
     int? customBatchSize, // 自定义分组大小
+    String? endDate, // 可选的结束日期，格式为yyyyMMdd，如果不提供则使用当前日期
   }) async {
     Map<String, List<KlineData>> result = {};
     
@@ -1212,6 +1214,7 @@ class StockApiService {
           tsCodes: batch,
           kLineType: kLineType,
           days: days,
+          endDate: endDate,
         );
         
         // 合并结果
@@ -1230,6 +1233,7 @@ class StockApiService {
               tsCode: tsCode,
               kLineType: kLineType,
               days: days,
+              endDate: endDate,
             );
             result[tsCode] = klineData;
             await Future.delayed(const Duration(milliseconds: 100));
@@ -1250,14 +1254,17 @@ class StockApiService {
     required List<String> tsCodes,
     required String kLineType,
     int days = 60,
+    String? endDate, // 可选的结束日期，格式为yyyyMMdd，如果不提供则使用当前日期
   }) async {
     try {
       // 计算开始和结束日期
-      final DateTime endDate = DateTime.now();
-      final DateTime startDate = endDate.subtract(Duration(days: days));
+      final DateTime endDateTime = endDate != null
+          ? DateTime.parse('${endDate.substring(0,4)}-${endDate.substring(4,6)}-${endDate.substring(6,8)}')
+          : DateTime.now();
+      final DateTime startDate = endDateTime.subtract(Duration(days: days));
       
       final String formattedStartDate = DateFormat('yyyyMMdd').format(startDate);
-      final String formattedEndDate = DateFormat('yyyyMMdd').format(endDate);
+      final String formattedEndDate = DateFormat('yyyyMMdd').format(endDateTime);
       
       // 将多个股票代码用逗号分隔
       final String tsCodesString = tsCodes.join(',');
@@ -1338,7 +1345,210 @@ class StockApiService {
     }
   }
 
-  // 获取MACD指标数据
+  // 使用stk_factor接口获取MACD和BOLL数据
+  static Future<Map<String, dynamic>> getFactorProData({
+    required String tsCode,
+    String? tradeDate,
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final Map<String, dynamic> requestData = {
+        'api_name': 'stk_factor',
+        'token': token,
+        'params': {
+          'ts_code': tsCode,
+        },
+        'fields': 'ts_code,trade_date,open_qfq,high_qfq,low_qfq,close_qfq,macd_dif,macd_dea,macd,boll_upper,boll_mid,boll_lower',
+      };
+
+      // 添加日期参数
+      if (tradeDate != null) {
+        requestData['params']['trade_date'] = tradeDate;
+      } else if (startDate != null && endDate != null) {
+        requestData['params']['start_date'] = startDate;
+        requestData['params']['end_date'] = endDate;
+      }
+
+      print('📡 请求stk_factor数据: $tsCode, 日期: ${tradeDate ?? '$startDate - $endDate'}');
+      print('📡 请求参数: ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestData),
+      );
+      
+      print('📡 响应状态码: ${response.statusCode}');
+      print('📡 响应内容长度: ${response.body.length}');
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        print('📡 stk_factor响应状态: code=${responseData['code']}, msg=${responseData['msg']}');
+        
+        // 打印响应的原始数据（用于调试）
+        if (responseData.containsKey('data')) {
+          final rawData = responseData['data'];
+          if (rawData is Map) {
+            print('📡 stk_factor原始响应数据结构: keys=${rawData.keys.toList()}');
+            if (rawData.containsKey('items')) {
+              print('📡 stk_factor原始items数量: ${(rawData['items'] as List?)?.length ?? 0}');
+              if (rawData['items'] is List && (rawData['items'] as List).isNotEmpty) {
+                print('📡 stk_factor第一条数据示例: ${(rawData['items'] as List)[0]}');
+              }
+            }
+          }
+        }
+        
+        if (responseData['code'] == 0) {
+          final data = responseData['data'] as Map<String, dynamic>?;
+          final items = data?['items'] as List?;
+          final fields = data?['fields'] as List?;
+
+          print('📡 stk_factor数据: items=${items?.length ?? 0}条, fields=${fields?.length ?? 0}个');
+          if (fields != null) {
+            print('📡 stk_factor字段列表: $fields');
+          }
+          
+          if (items == null || items.isEmpty) {
+            print('⚠️ stk_factor返回的items为空或null');
+          }
+
+          if (items != null && fields != null) {
+            // 找到字段索引（注意：MACD字段是macd，不是macd_macd）
+            int tsCodeIndex = fields.indexOf('ts_code');
+            int tradeDateIndex = fields.indexOf('trade_date');
+            int openQfqIndex = fields.indexOf('open_qfq');
+            int highQfqIndex = fields.indexOf('high_qfq');
+            int lowQfqIndex = fields.indexOf('low_qfq');
+            int closeQfqIndex = fields.indexOf('close_qfq');
+            int macdDifIndex = fields.indexOf('macd_dif');
+            int macdDeaIndex = fields.indexOf('macd_dea');
+            int macdIndex = fields.indexOf('macd');
+            int bollUpperIndex = fields.indexOf('boll_upper');
+            int bollMidIndex = fields.indexOf('boll_mid');
+            int bollLowerIndex = fields.indexOf('boll_lower');
+            
+            print('📡 字段索引: trade_date=$tradeDateIndex, open_qfq=$openQfqIndex, high_qfq=$highQfqIndex, low_qfq=$lowQfqIndex, close_qfq=$closeQfqIndex, macd_dif=$macdDifIndex, macd_dea=$macdDeaIndex, macd=$macdIndex, boll_upper=$bollUpperIndex, boll_mid=$bollMidIndex, boll_lower=$bollLowerIndex');
+
+            List<MacdData> macdDataList = [];
+            List<BollData> bollDataList = [];
+            // 存储前复权价格数据，用于更新KlineData
+            Map<String, Map<String, double>> qfqPriceMap = {};
+
+            for (var item in items) {
+              if (item is List && item.length > tradeDateIndex && tradeDateIndex >= 0) {
+                final dateStr = item[tradeDateIndex]?.toString() ?? '';
+                // 确保日期格式为yyyyMMdd
+                String formattedDate = dateStr;
+                if (dateStr.contains('-')) {
+                  formattedDate = dateStr.replaceAll('-', '');
+                }
+
+                // 解析前复权价格数据
+                if (openQfqIndex >= 0 && highQfqIndex >= 0 && lowQfqIndex >= 0 && closeQfqIndex >= 0) {
+                  if (item.length > openQfqIndex && item.length > highQfqIndex && 
+                      item.length > lowQfqIndex && item.length > closeQfqIndex) {
+                    final openQfq = double.tryParse(item[openQfqIndex]?.toString() ?? '0');
+                    final highQfq = double.tryParse(item[highQfqIndex]?.toString() ?? '0');
+                    final lowQfq = double.tryParse(item[lowQfqIndex]?.toString() ?? '0');
+                    final closeQfq = double.tryParse(item[closeQfqIndex]?.toString() ?? '0');
+                    
+                    if (openQfq != null && highQfq != null && lowQfq != null && closeQfq != null) {
+                      qfqPriceMap[formattedDate] = {
+                        'open_qfq': openQfq,
+                        'high_qfq': highQfq,
+                        'low_qfq': lowQfq,
+                        'close_qfq': closeQfq,
+                      };
+                    }
+                  }
+                }
+
+                // 解析MACD数据（注意：字段名是macd，不是macd_macd）
+                if (macdDifIndex >= 0 && macdDeaIndex >= 0 && macdIndex >= 0) {
+                  if (item.length > macdDifIndex && item.length > macdDeaIndex && item.length > macdIndex) {
+                    final dif = double.tryParse(item[macdDifIndex]?.toString() ?? '0') ?? 0.0;
+                    final dea = double.tryParse(item[macdDeaIndex]?.toString() ?? '0') ?? 0.0;
+                    final macd = double.tryParse(item[macdIndex]?.toString() ?? '0') ?? 0.0;
+                    
+                    macdDataList.add(MacdData(
+                      tsCode: tsCode,
+                      tradeDate: formattedDate,
+                      dif: dif,
+                      dea: dea,
+                      macd: macd,
+                    ));
+                  } else {
+                    print('⚠️ MACD数据项长度不足: item.length=${item.length}, 需要至少${[macdDifIndex, macdDeaIndex, macdIndex].reduce((a, b) => a > b ? a : b) + 1}');
+                  }
+                } else {
+                  print('⚠️ MACD字段索引无效: dif=$macdDifIndex, dea=$macdDeaIndex, macd=$macdIndex (字段列表: $fields)');
+                }
+
+                // 解析BOLL数据
+                if (bollUpperIndex >= 0 && bollMidIndex >= 0 && bollLowerIndex >= 0) {
+                  if (item.length > bollUpperIndex && item.length > bollMidIndex && item.length > bollLowerIndex) {
+                    final upper = double.tryParse(item[bollUpperIndex]?.toString() ?? '0') ?? 0.0;
+                    final mid = double.tryParse(item[bollMidIndex]?.toString() ?? '0') ?? 0.0;
+                    final lower = double.tryParse(item[bollLowerIndex]?.toString() ?? '0') ?? 0.0;
+                    
+                    bollDataList.add(BollData(
+                      tsCode: tsCode,
+                      tradeDate: formattedDate,
+                      upper: upper,
+                      middle: mid,
+                      lower: lower,
+                    ));
+                  } else {
+                    print('⚠️ BOLL数据项长度不足: item.length=${item.length}, 需要至少${[bollUpperIndex, bollMidIndex, bollLowerIndex].reduce((a, b) => a > b ? a : b) + 1}');
+                  }
+                } else {
+                  print('⚠️ BOLL字段索引无效: upper=$bollUpperIndex, mid=$bollMidIndex, lower=$bollLowerIndex (字段列表: $fields)');
+                }
+              } else {
+                print('⚠️ 数据项格式错误: item类型=${item.runtimeType}, item长度=${item is List ? item.length : 'N/A'}, tradeDateIndex=$tradeDateIndex');
+              }
+            }
+            
+            print('📡 解析结果: MACD=${macdDataList.length}条, BOLL=${bollDataList.length}条');
+
+            // 按交易日期排序
+            macdDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+            bollDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+
+            print('✅ stk_factor数据获取成功: MACD=${macdDataList.length}条, BOLL=${bollDataList.length}条, 前复权价格=${qfqPriceMap.length}条');
+            
+            return {
+              'macd': macdDataList,
+              'boll': bollDataList,
+              'qfq_prices': qfqPriceMap, // 返回前复权价格数据
+            };
+          } else {
+            print('⚠️ stk_factor数据为空: items或fields为null');
+          }
+        } else {
+          print('❌ stk_factor API返回错误: code=${responseData['code']}, msg=${responseData['msg']}');
+          if (responseData.containsKey('data')) {
+            print('📡 错误响应数据: ${responseData['data']}');
+          }
+        }
+      } else {
+        print('❌ stk_factor HTTP请求失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 获取stk_factor数据异常: $e');
+    }
+    
+    return {
+      'macd': <MacdData>[],
+      'boll': <BollData>[],
+    };
+  }
+
+  // 获取MACD指标数据（旧接口，已注释，改用stk_factor_pro接口）
+  /*
   static Future<List<MacdData>> getMacdData({
     required String tsCode,
     required String startDate,
@@ -1682,4 +1892,5 @@ class StockApiService {
     
     return [];
   }
+  */
 }

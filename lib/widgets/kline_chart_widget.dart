@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'dart:async';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
+import '../models/boll_data.dart';
 
 class KlineChartWidget extends StatefulWidget {
   final List<KlineData> klineDataList;
   final List<MacdData> macdDataList; // MACD数据
+  final List<BollData> bollDataList; // BOLL数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量，默认为1（成交量），支持4个副图
   final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
@@ -16,6 +18,7 @@ class KlineChartWidget extends StatefulWidget {
     super.key,
     required this.klineDataList,
     this.macdDataList = const [],
+    this.bollDataList = const [],
     this.displayDays,
     this.subChartCount = 1, // 默认1个副图（成交量）
     this.chartType = 'daily', // 默认日K
@@ -298,6 +301,7 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
         painter: KlineChartPainter(
           klineDataList: widget.klineDataList,
           macdDataList: widget.macdDataList,
+          bollDataList: widget.bollDataList,
           displayDays: widget.displayDays,
           subChartCount: widget.subChartCount,
           chartType: widget.chartType,
@@ -327,6 +331,7 @@ class _MaPoint {
 class KlineChartPainter extends CustomPainter {
   final List<KlineData> klineDataList;
   final List<MacdData> macdDataList; // MACD数据
+  final List<BollData> bollDataList; // BOLL数据
   final int? displayDays; // 可选：要显示的天数，如果为null则显示所有数据
   final int subChartCount; // 副图数量
   final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
@@ -359,6 +364,7 @@ class KlineChartPainter extends CustomPainter {
   KlineChartPainter({
     required this.klineDataList,
     this.macdDataList = const [],
+    this.bollDataList = const [],
     this.displayDays,
     this.subChartCount = 1,
     this.chartType = 'daily',
@@ -544,18 +550,43 @@ class KlineChartPainter extends CustomPainter {
     // 再绘制均线（在K线上方，确保均线可见）
     _drawMaLines(canvas, size, visibleData, visibleMaPoints, maxPrice, minPrice, chartWidth, klineChartHeight);
 
-    // 绘制副图（固定顺序：第1个=成交量，第2个=MACD，第3、4个=成交量）
+    // 绘制副图（固定顺序：第1个=成交量，第2个=MACD，第3个=BOLL，第4个=成交量）
     double currentSubChartTop = topPadding + klineChartHeight + chartGap;
-    print('🔍 开始绘制副图: subChartCount=$subChartCount, macdDataList.length=${macdDataList.length}');
+    print('🔍 开始绘制副图: subChartCount=$subChartCount, macdDataList.length=${macdDataList.length}, bollDataList.length=${bollDataList.length}');
     for (int i = 0; i < subChartCount; i++) {
       print('🔍 绘制第${i + 1}个副图: i=$i');
-      if (i == 1 && macdDataList.isNotEmpty) {
-        // 第二个副图（索引1）显示MACD指标
-        print('✅ 绘制MACD图表（第2个副图）');
-        _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
-        _drawMacdLabels(canvas, size, macdDataList, currentSubChartTop, subChartHeight);
-      } else {
-        // 第1、3、4个副图显示成交量
+      // 第1个副图（索引0）：成交量
+      if (i == 0) {
+        print('📊 绘制成交量图表（第1个副图）');
+        _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
+        _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
+      }
+      // 第2个副图（索引1）：MACD指标
+      else if (i == 1) {
+        if (macdDataList.isNotEmpty) {
+          print('✅ 绘制MACD图表（第2个副图）');
+          _drawMacdChart(canvas, size, visibleData, macdDataList, chartWidth, currentSubChartTop, subChartHeight);
+          _drawMacdLabels(canvas, size, visibleData, macdDataList, selectedIndex, currentSubChartTop, subChartHeight);
+        } else {
+          print('⚠️ MACD数据为空，绘制成交量图表（第2个副图）');
+          _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
+          _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
+        }
+      }
+      // 第3个副图（索引2）：BOLL指标
+      else if (i == 2) {
+        if (bollDataList.isNotEmpty) {
+          print('✅ 绘制BOLL图表（第3个副图）');
+          _drawBollChart(canvas, size, visibleData, bollDataList, chartWidth, currentSubChartTop, subChartHeight);
+          _drawBollLabels(canvas, size, visibleData, bollDataList, selectedIndex, currentSubChartTop, subChartHeight);
+        } else {
+          print('⚠️ BOLL数据为空，绘制成交量图表（第3个副图）');
+          _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
+          _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
+        }
+      }
+      // 第4个及以上副图（索引3及以上）：成交量
+      else {
         print('📊 绘制成交量图表（第${i + 1}个副图）');
         _drawVolumeChart(canvas, size, visibleData, maxVolume, chartWidth, currentSubChartTop, subChartHeight);
         _drawVolumeLabels(canvas, size, maxVolume, currentSubChartTop, subChartHeight);
@@ -1093,63 +1124,299 @@ class KlineChartPainter extends CustomPainter {
       return;
     }
 
-    // 创建日期到MACD数据的映射
+    // 创建日期到MACD数据的映射（保持与K线数据的索引对应关系）
     Map<String, MacdData> macdMap = {};
     for (var macd in macdDataList) {
       macdMap[macd.tradeDate] = macd;
     }
 
-    // 获取可见数据对应的MACD数据
-    List<MacdData> visibleMacdData = [];
+    // 统计匹配情况
     int matchedCount = 0;
     int unmatchedCount = 0;
     for (var kline in visibleData) {
       final macd = macdMap[kline.tradeDate];
       if (macd != null) {
-        visibleMacdData.add(macd);
         matchedCount++;
       } else {
         unmatchedCount++;
         if (unmatchedCount <= 3) {
-          print('⚠️ 日期不匹配: K线日期=${kline.tradeDate}, MACD数据日期=${macdMap.keys.take(3).toList()}');
+          print('⚠️ MACD数据缺失: K线日期=${kline.tradeDate}（该日期不绘制MACD）');
         }
       }
     }
 
-    print('🔍 MACD可见数据: ${visibleMacdData.length}/${visibleData.length} (匹配:$matchedCount, 不匹配:$unmatchedCount)');
-    if (visibleMacdData.isNotEmpty) {
-      print('🔍 MACD数据示例: 日期=${visibleMacdData.first.tradeDate}, DIF=${visibleMacdData.first.dif}, DEA=${visibleMacdData.first.dea}, MACD=${visibleMacdData.first.macd}');
-    }
-
-    if (visibleMacdData.isEmpty) {
-      print('⚠️ MACD可见数据为空');
+    print('🔍 MACD数据匹配: ${visibleData.length}个K线数据中，匹配MACD:$matchedCount个, 缺失:$unmatchedCount个');
+    if (matchedCount == 0) {
+      print('⚠️ 没有匹配的MACD数据，跳过MACD图表绘制');
       return;
     }
 
-    // 计算MACD值的范围
-    double maxMacd = visibleMacdData.map((e) => math.max(e.dif, math.max(e.dea, e.macd))).reduce(math.max);
-    double minMacd = visibleMacdData.map((e) => math.min(e.dif, math.min(e.dea, e.macd))).reduce(math.min);
+    // 计算MACD值的范围（根据K线展示区间内的最高最低值，自适应DIF、DEA和M的值）
+    // 关键策略：使用统一的纵向比例尺，使DIF、DEA和M值协调显示
+    // 遍历visibleData，从macdMap中查找对应的MACD数据，保持索引对应关系
     
-    // 确保范围包含0
-    maxMacd = math.max(maxMacd.abs(), minMacd.abs());
-    minMacd = -maxMacd;
+    // 计算所有MACD值（DIF、DEA、M）在可见区间内的最高和最低值
+    double maxAllValues = double.negativeInfinity;
+    double minAllValues = double.infinity;
     
-    if (maxMacd == minMacd) {
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null) {
+        // 检查DIF值
+        if (!macd.dif.isNaN && !macd.dif.isInfinite) {
+          maxAllValues = math.max(maxAllValues, macd.dif);
+          minAllValues = math.min(minAllValues, macd.dif);
+        }
+        // 检查DEA值
+        if (!macd.dea.isNaN && !macd.dea.isInfinite) {
+          maxAllValues = math.max(maxAllValues, macd.dea);
+          minAllValues = math.min(minAllValues, macd.dea);
+        }
+        // 检查M值
+        if (!macd.macd.isNaN && !macd.macd.isInfinite) {
+          maxAllValues = math.max(maxAllValues, macd.macd);
+          minAllValues = math.min(minAllValues, macd.macd);
+        }
+      }
+    }
+    
+    // 如果所有值都是无效的，使用默认值
+    if (maxAllValues == double.negativeInfinity || minAllValues == double.infinity) {
+      maxAllValues = 1.0;
+      minAllValues = -1.0;
+    }
+    
+    print('🔍 MACD可见区间范围: 最小值=$minAllValues, 最大值=$maxAllValues');
+    
+    // 计算DIF和DEA的最大绝对值（用于趋势分析）
+    List<double> difValues = [];
+    List<double> deaValues = [];
+    List<double> macdValues = [];
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null) {
+        if (!macd.dif.isNaN && !macd.dif.isInfinite) difValues.add(macd.dif.abs());
+        if (!macd.dea.isNaN && !macd.dea.isInfinite) deaValues.add(macd.dea.abs());
+        if (!macd.macd.isNaN && !macd.macd.isInfinite) macdValues.add(macd.macd);
+      }
+    }
+    
+    double maxDifAbs = difValues.isNotEmpty ? difValues.reduce(math.max) : 0.0;
+    double maxDeaAbs = deaValues.isNotEmpty ? deaValues.reduce(math.max) : 0.0;
+    double maxDifDeaAbs = math.max(maxDifAbs, maxDeaAbs);
+    
+    // 计算M值的最大绝对值和分布情况（用于趋势分析）
+    double maxMacdValue = macdValues.isNotEmpty ? macdValues.map((e) => e.abs()).reduce(math.max) : 0.0;
+    // 计算M值在正负两边的最大值
+    double maxMacdPositive = 0.0;
+    double maxMacdNegative = 0.0;
+    for (var value in macdValues) {
+      if (value > 0 && value > maxMacdPositive) {
+        maxMacdPositive = value;
+      }
+      if (value < 0 && value.abs() > maxMacdNegative) {
+        maxMacdNegative = value.abs();
+      }
+    }
+    
+    // 计算DIF和DEA的实际最大值和最小值（考虑正负，用于趋势分析）
+    List<double> difDeaMax = [];
+    List<double> difDeaMin = [];
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null) {
+        if (!macd.dif.isNaN && !macd.dif.isInfinite && !macd.dea.isNaN && !macd.dea.isInfinite) {
+          difDeaMax.add(math.max(macd.dif, macd.dea));
+          difDeaMin.add(math.min(macd.dif, macd.dea));
+        }
+      }
+    }
+    final actualMaxDifDea = difDeaMax.isNotEmpty ? difDeaMax.reduce(math.max) : 0.0;
+    final actualMinDifDea = difDeaMin.isNotEmpty ? difDeaMin.reduce(math.min) : 0.0;
+    
+    // 分析MACD趋势（上涨、下跌、震荡）
+    // 通过计算M值的平均值和斜率来判断趋势
+    double macdSum = 0.0;
+    int macdCount = 0;
+    for (var value in macdValues) {
+      macdSum += value;
+      macdCount++;
+    }
+    final macdAverage = macdCount > 0 ? macdSum / macdCount : 0.0;
+    
+    // 计算趋势斜率（使用线性回归的简单方法：比较前半段和后半段的平均值）
+    final midIndex = visibleData.length ~/ 2;
+    double firstHalfSum = 0.0;
+    double secondHalfSum = 0.0;
+    int firstHalfCount = 0;
+    int secondHalfCount = 0;
+    
+    for (int i = 0; i < visibleData.length; i++) {
+      final macd = macdMap[visibleData[i].tradeDate];
+      if (macd != null && !macd.macd.isNaN && !macd.macd.isInfinite) {
+        if (i < midIndex) {
+          firstHalfSum += macd.macd;
+          firstHalfCount++;
+        } else {
+          secondHalfSum += macd.macd;
+          secondHalfCount++;
+        }
+      }
+    }
+    
+    final firstHalfAvg = firstHalfCount > 0 ? firstHalfSum / firstHalfCount : 0.0;
+    final secondHalfAvg = secondHalfCount > 0 ? secondHalfSum / secondHalfCount : 0.0;
+    final trendSlope = secondHalfAvg - firstHalfAvg;
+    
+    // 判断趋势类型
+    String trendType = '震荡';
+    double trendStrength = 0.0; // -1到1之间，-1表示强烈下跌，1表示强烈上涨，0表示震荡
+    
+    if (macdCount > 0) {
+      // 如果平均值和斜率都为正，判断为上涨趋势
+      // 如果平均值和斜率都为负，判断为下跌趋势
+      // 否则为震荡趋势
+      final avgSign = macdAverage > 0 ? 1 : -1;
+      final slopeSign = trendSlope > 0 ? 1 : -1;
+      
+      if (avgSign == 1 && slopeSign == 1 && macdAverage.abs() > 0.01) {
+        trendType = '上涨';
+        trendStrength = math.min(1.0, (macdAverage.abs() + trendSlope.abs()) / (maxMacdValue * 2));
+      } else if (avgSign == -1 && slopeSign == -1 && macdAverage.abs() > 0.01) {
+        trendType = '下跌';
+        trendStrength = -math.min(1.0, (macdAverage.abs() + trendSlope.abs()) / (maxMacdValue * 2));
+      } else {
+        trendType = '震荡';
+        trendStrength = 0.0;
+      }
+    }
+    
+    print('🔍 MACD趋势分析: 类型=$trendType, 强度=${trendStrength.toStringAsFixed(2)}, 平均值=$macdAverage, 斜率=$trendSlope');
+    
+    // 分析M值的分布，根据趋势调整0轴位置
+    // 计算M值在正负两边的最大绝对值
+    final macdPositiveRange = maxMacdPositive;
+    final macdNegativeRange = maxMacdNegative;
+    
+    // 计算DIF/DEA在正负两边的范围
+    final difDeaPositiveRange = actualMaxDifDea > 0 ? actualMaxDifDea : 0.0;
+    final difDeaNegativeRange = actualMinDifDea < 0 ? actualMinDifDea.abs() : 0.0;
+    
+    // 使用统一的最高最低值作为Y轴范围的基础
+    // 确保包含所有DIF、DEA和M值
+    double maxMacd = maxAllValues;
+    double minMacd = minAllValues;
+    
+    // 根据趋势调整范围的不对称性，但保持统一的比例尺
+    // 趋势强度影响范围调整（0.1到0.3的调整幅度）
+    final trendAdjustment = trendStrength.abs() * 0.2; // 减小调整幅度，使图形更协调
+    
+    // 计算正负两边的范围
+    final positiveRange = maxAllValues > 0 ? maxAllValues : 0.0;
+    final negativeRange = minAllValues < 0 ? minAllValues.abs() : 0.0;
+    
+    if (trendType == '上涨') {
+      // 上涨趋势：0轴偏下，增加上方范围
+      maxMacd = positiveRange * (1.0 + trendAdjustment);
+      minMacd = -negativeRange * (1.0 - trendAdjustment * 0.5);
+      print('🔍 上涨趋势：上方范围扩大${(trendAdjustment * 100).toStringAsFixed(1)}%，0轴偏下');
+    } else if (trendType == '下跌') {
+      // 下跌趋势：0轴偏上，增加下方范围
+      maxMacd = positiveRange * (1.0 - trendAdjustment * 0.5);
+      minMacd = -negativeRange * (1.0 + trendAdjustment);
+      print('🔍 下跌趋势：下方范围扩大${(trendAdjustment * 100).toStringAsFixed(1)}%，0轴偏上');
+    } else {
+      // 震荡趋势：0轴居中，保持对称
+      final baseRange = math.max(positiveRange, negativeRange);
+      maxMacd = baseRange;
+      minMacd = -baseRange;
+      print('🔍 震荡趋势：0轴居中，范围对称');
+    }
+    
+    // 确保范围包含所有实际值
+    if (maxMacd < maxAllValues) {
+      maxMacd = maxAllValues;
+    }
+    if (minMacd > minAllValues) {
+      minMacd = minAllValues;
+    }
+    
+    // 添加极小的边距（0.5%），使图形更协调
+    final dataRange = maxMacd - minMacd;
+    if (dataRange > 0) {
+      maxMacd = maxMacd + dataRange * 0.005; // 添加0.5%的上边距
+      minMacd = minMacd - dataRange * 0.005; // 添加0.5%的下边距
+    }
+    
+    // 最终检查：确保范围有效
+    if (maxMacd == minMacd || (maxMacd - minMacd) == 0) {
+      // 如果范围无效，使用对称范围
+      final absMax = math.max(maxAllValues.abs(), minAllValues.abs());
+      maxMacd = absMax * 1.01;
+      minMacd = -absMax * 1.01;
+    }
+    
+    if (maxMacd == minMacd || (maxMacd - minMacd) == 0) {
       maxMacd = 1.0;
       minMacd = -1.0;
     }
 
-    final macdRange = maxMacd - minMacd;
+    // 验证0轴位置（根据趋势有不同的期望位置）
+    var currentRange = maxMacd - minMacd;
+    var zeroPosition = (0.0 - minMacd) / currentRange;
+    var zeroPositionPercent = zeroPosition * 100;
     
-    print('🔍 MACD范围: min=$minMacd, max=$maxMacd, range=$macdRange');
+    // 根据趋势设置期望的0轴位置
+    double expectedZeroPosition = 50.0; // 默认居中
+    String expectedDescription = '居中';
+    if (trendType == '上涨') {
+      expectedZeroPosition = 35.0; // 上涨趋势：0轴偏下（约35%位置）
+      expectedDescription = '偏下（上涨趋势）';
+    } else if (trendType == '下跌') {
+      expectedZeroPosition = 65.0; // 下跌趋势：0轴偏上（约65%位置）
+      expectedDescription = '偏上（下跌趋势）';
+    } else {
+      expectedZeroPosition = 50.0; // 震荡趋势：0轴居中
+      expectedDescription = '居中（震荡趋势）';
+    }
+    
+    print('🔍 MACD 0轴位置: ${zeroPositionPercent.toStringAsFixed(2)}% (期望${expectedZeroPosition.toStringAsFixed(0)}%，表示${expectedDescription})');
+    
+    // 如果不是震荡趋势且0轴位置偏差较大，进行微调
+    if (trendType != '震荡' && (zeroPositionPercent - expectedZeroPosition).abs() > 5.0) {
+      print('⚠️ 0轴位置偏差较大，进行微调');
+      // 根据趋势调整范围
+      if (trendType == '上涨') {
+        // 上涨趋势：增加上方范围，减小下方范围
+        final newUpper = maxMacd * 1.1;
+        final newLower = minMacd.abs() * 0.9;
+        maxMacd = newUpper;
+        minMacd = -newLower;
+      } else if (trendType == '下跌') {
+        // 下跌趋势：增加下方范围，减小上方范围
+        final newUpper = maxMacd * 0.9;
+        final newLower = minMacd.abs() * 1.1;
+        maxMacd = newUpper;
+        minMacd = -newLower;
+      }
+      currentRange = maxMacd - minMacd;
+      final adjustedZeroPosition = (0.0 - minMacd) / currentRange;
+      print('🔍 调整后0轴位置: ${(adjustedZeroPosition * 100).toStringAsFixed(2)}%');
+    }
+    
+    // 使用最终的范围
+    final finalMacdRange = maxMacd - minMacd;
+    
+    print('🔍 MACD Y轴范围: min=$minMacd, max=$maxMacd, range=$finalMacdRange');
 
     // 绘制MACD网格线（0轴和水平线）
     final gridPaint = Paint()
       ..color = Colors.grey[300]!
       ..strokeWidth = 0.5;
     
-    // 绘制0轴（中间线）
-    final zeroY = macdChartTop + macdChartHeight / 2;
+    // 绘制0轴（根据实际Y轴范围动态计算0轴位置）
+    // 0轴的Y坐标 = 图表顶部 + (最大值 - 0值) / (最大值 - 最小值) * 图表高度
+    final zeroY = macdChartTop + (maxMacd - 0.0) / finalMacdRange * macdChartHeight;
     canvas.drawLine(
       Offset(0, zeroY),
       Offset(chartWidth, zeroY),
@@ -1184,15 +1451,80 @@ class KlineChartPainter extends CustomPainter {
     
     final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
 
-    // 绘制MACD柱状图（M值）
-    for (int i = 0; i < visibleMacdData.length; i++) {
-      final macd = visibleMacdData[i];
+    // 绘制MACD柱状图（M值）- 使用更窄的宽度
+    // 遍历visibleData，保持与K线数据的索引对应关系
+    final macdBarWidth = dynamicCandleWidth * 0.35; // 柱状图宽度为K线宽度的35%，使其更细
+    for (int i = 0; i < visibleData.length; i++) {
+      final kline = visibleData[i];
+      final macd = macdMap[kline.tradeDate];
+      
+      // 如果没有MACD数据，跳过绘制，但保持索引对应关系
+      if (macd == null) {
+        continue;
+      }
+      
       final x = i * candleTotalWidth + dynamicCandleWidth / 2;
       
-      // 计算MACD柱状图的高度和位置
+      // 计算MACD柱状图的高度和位置（使用与DIF线完全相同的计算方式）
       final macdValue = macd.macd;
-      final macdHeight = (macdValue.abs() / macdRange) * macdChartHeight * 0.5; // 柱状图占一半高度
-      final zeroY = macdChartTop + macdChartHeight / 2; // 0值在中间
+      
+      // 计算0轴在图表中的实际Y坐标位置（与DIF/DEA线使用完全相同的计算方式）
+      // DIF/DEA线的Y坐标计算公式：y = chartTop + (maxMacd - value) / macdRange * chartHeight
+      // 确保使用完全相同的参数：chartTop=macdChartTop, macdRange=finalMacdRange, chartHeight=macdChartHeight
+      final zeroY = macdChartTop + (maxMacd - 0.0) / finalMacdRange * macdChartHeight;
+      
+      // 计算M值在Y轴上的位置（与DIF/DEA线使用完全相同的计算方式）
+      // 使用完全相同的公式和参数，确保比例尺一致
+      final mValueY = macdChartTop + (maxMacd - macdValue) / finalMacdRange * macdChartHeight;
+      
+      // 计算柱状图的高度和位置，确保与DIF线使用完全相同的比例尺
+      // 在Canvas坐标系中，Y坐标从上往下递增
+      // 对于正值（M值在0轴上方）：mValueY < zeroY（Y坐标更小，在图表上方）
+      // 对于负值（M值在0轴下方）：mValueY > zeroY（Y坐标更大，在图表下方）
+      double macdHeight;
+      double barTopY;
+      
+      if (macdValue >= 0) {
+        // 正值：M值在0轴上方，柱状图从0轴向上绘制到M值位置
+        // mValueY < zeroY（Y坐标更小，在图表上方）
+        barTopY = mValueY; // 柱状图顶部在M值的Y坐标位置（与DIF线位置一致）
+        macdHeight = zeroY - mValueY; // 高度是从M值位置到0轴的距离
+      } else {
+        // 负值：M值在0轴下方，柱状图从0轴向下绘制到M值位置
+        // mValueY > zeroY（Y坐标更大，在图表下方）
+        barTopY = zeroY; // 柱状图顶部在0轴
+        macdHeight = mValueY - zeroY; // 高度是从0轴到M值位置的距离
+      }
+      
+      // 确保高度不为负
+      macdHeight = math.max(0.0, macdHeight);
+      
+      // 添加详细的调试信息（仅对最后一个数据点），验证三个指标使用完全相同的比例尺
+      if (i == visibleData.length - 1) {
+        // 使用与_drawMacdLine完全相同的公式计算DIF和DEA的Y坐标
+        final difY = macdChartTop + (maxMacd - macd.dif) / finalMacdRange * macdChartHeight;
+        final deaY = macdChartTop + (maxMacd - macd.dea) / finalMacdRange * macdChartHeight;
+        
+        print('🔍 ========== MACD三个指标比例尺验证 ==========');
+        print('🔍 参数验证: chartTop=$macdChartTop, maxMacd=$maxMacd, range=$finalMacdRange, height=$macdChartHeight');
+        print('🔍 数值: DIF=${macd.dif}, DEA=${macd.dea}, M=${macd.macd}');
+        print('🔍 Y坐标: DIF=$difY, DEA=$deaY, M=$mValueY, 0轴=$zeroY');
+        print('🔍 公式验证:');
+        print('🔍   DIF公式: $macdChartTop + ($maxMacd - ${macd.dif}) / $finalMacdRange * $macdChartHeight = $difY');
+        print('🔍   DEA公式: $macdChartTop + ($maxMacd - ${macd.dea}) / $finalMacdRange * $macdChartHeight = $deaY');
+        print('🔍   M值公式: $macdChartTop + ($maxMacd - $macdValue) / $finalMacdRange * $macdChartHeight = $mValueY');
+        
+        // 验证：如果DIF和M值相同，它们的Y坐标应该也相同
+        if ((macd.dif - macd.macd).abs() < 0.001) {
+          final yDiff = (difY - mValueY).abs();
+          if (yDiff > 0.1) {
+            print('⚠️ 警告: DIF和M值几乎相同(${macd.dif} vs ${macd.macd})，但Y坐标差=$yDiff');
+          } else {
+            print('✅ DIF和M值几乎相同时，Y坐标也几乎相同');
+          }
+        }
+        print('🔍 ============================================');
+      }
       
       final color = macdValue >= 0 ? Colors.red.withOpacity(0.6) : Colors.green[700]!.withOpacity(0.6); // 使用更深的绿色
       
@@ -1200,86 +1532,73 @@ class KlineChartPainter extends CustomPainter {
         ..color = color
         ..style = PaintingStyle.fill;
       
-      if (macdValue >= 0) {
-        // 正值，向上绘制
-        canvas.drawRect(
-          Rect.fromLTWH(
-            x - dynamicCandleWidth / 2,
-            zeroY - macdHeight,
-            dynamicCandleWidth,
-            macdHeight,
-          ),
-          macdPaint,
-        );
-      } else {
-        // 负值，向下绘制
-        canvas.drawRect(
-          Rect.fromLTWH(
-            x - dynamicCandleWidth / 2,
-            zeroY,
-            dynamicCandleWidth,
-            macdHeight,
-          ),
-          macdPaint,
-        );
-      }
+      // 绘制柱状图
+      // 对于正值：从mValueY（顶部）向下延伸到zeroY（底部）
+      // 对于负值：从zeroY（顶部）向下延伸到mValueY（底部）
+      // 使用Rect.fromLTWH时，Y坐标是矩形顶部，height是向下延伸的高度
+      canvas.drawRect(
+        Rect.fromLTWH(
+          x - macdBarWidth / 2,
+          barTopY,
+          macdBarWidth,
+          macdHeight,
+        ),
+        macdPaint,
+      );
     }
 
-    // 绘制DIF线（黑色）- 检查是否有非零的有效数据
-    bool hasValidDif = visibleMacdData.any((m) => !m.dif.isNaN && !m.dif.isInfinite && m.dif != 0.0);
-    if (hasValidDif) {
-      print('🔍 开始绘制DIF线，有效数据点: ${visibleMacdData.where((m) => !m.dif.isNaN && !m.dif.isInfinite && m.dif != 0.0).length}');
-      _drawMacdLine(canvas, visibleMacdData, (m) => m.dif, Colors.black, 
-          minMacd, maxMacd, macdRange, macdChartHeight, macdChartTop, chartWidth);
-    } else {
-      print('⚠️ 没有有效的DIF数据（所有值都是0、NaN或Infinite）');
-      // 打印DIF值范围以便调试
-      if (visibleMacdData.isNotEmpty) {
-        final difValues = visibleMacdData.map((m) => m.dif).where((v) => !v.isNaN && !v.isInfinite).toList();
-        if (difValues.isNotEmpty) {
-          print('🔍 DIF值范围: min=${difValues.reduce((a, b) => a < b ? a : b)}, max=${difValues.reduce((a, b) => a > b ? a : b)}');
-        }
+    // 绘制DIF线（黑色）- 使用visibleData和macdMap，保持索引对应关系
+    bool hasValidDif = false;
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null && !macd.dif.isNaN && !macd.dif.isInfinite && macd.dif != 0.0) {
+        hasValidDif = true;
+        break;
       }
     }
+    if (hasValidDif) {
+      _drawMacdLine(canvas, visibleData, macdMap, (m) => m.dif, Colors.black, 
+          minMacd, maxMacd, finalMacdRange, macdChartHeight, macdChartTop, chartWidth,
+          strokeWidth: 1.0); // DIF线更细一些
+    }
     
-    // 绘制DEA线（黄色/橙色）- 检查是否有非零的有效数据
-    bool hasValidDea = visibleMacdData.any((m) => !m.dea.isNaN && !m.dea.isInfinite && m.dea != 0.0);
-    if (hasValidDea) {
-      print('🔍 开始绘制DEA线，有效数据点: ${visibleMacdData.where((m) => !m.dea.isNaN && !m.dea.isInfinite && m.dea != 0.0).length}');
-      _drawMacdLine(canvas, visibleMacdData, (m) => m.dea, Colors.orange, 
-          minMacd, maxMacd, macdRange, macdChartHeight, macdChartTop, chartWidth);
-    } else {
-      print('⚠️ 没有有效的DEA数据（所有值都是0、NaN或Infinite）');
-      // 打印DEA值范围以便调试
-      if (visibleMacdData.isNotEmpty) {
-        final deaValues = visibleMacdData.map((m) => m.dea).where((v) => !v.isNaN && !v.isInfinite).toList();
-        if (deaValues.isNotEmpty) {
-          print('🔍 DEA值范围: min=${deaValues.reduce((a, b) => a < b ? a : b)}, max=${deaValues.reduce((a, b) => a > b ? a : b)}');
-        }
+    // 绘制DEA线（黄色/橙色）- 使用visibleData和macdMap，保持索引对应关系
+    bool hasValidDea = false;
+    for (var kline in visibleData) {
+      final macd = macdMap[kline.tradeDate];
+      if (macd != null && !macd.dea.isNaN && !macd.dea.isInfinite && macd.dea != 0.0) {
+        hasValidDea = true;
+        break;
       }
+    }
+    if (hasValidDea) {
+      _drawMacdLine(canvas, visibleData, macdMap, (m) => m.dea, Colors.orange, 
+          minMacd, maxMacd, finalMacdRange, macdChartHeight, macdChartTop, chartWidth);
     }
   }
 
   // 绘制MACD线（DIF或DEA）
-  void _drawMacdLine(Canvas canvas, List<MacdData> macdDataList,
+  // 使用visibleData和macdMap，保持与K线数据的索引对应关系
+  void _drawMacdLine(Canvas canvas, List<KlineData> visibleData, Map<String, MacdData> macdMap,
       double Function(MacdData) getValue, Color color,
       double minMacd, double maxMacd, double macdRange,
-      double chartHeight, double chartTop, double chartWidth) {
+      double chartHeight, double chartTop, double chartWidth,
+      {double strokeWidth = 1.3}) { // 可选的线条宽度参数
     final linePaint = Paint()
       ..color = color
-      ..strokeWidth = 1.3 // 稍微细一点
+      ..strokeWidth = strokeWidth // 使用传入的线条宽度
       ..style = PaintingStyle.stroke;
 
-    // 动态计算K线宽度和间距
+    // 动态计算K线宽度和间距（与visibleData长度对应）
     double dynamicCandleWidth = candleWidth;
     double dynamicCandleSpacing = candleSpacing;
     
-    if (macdDataList.length > 0) {
-      if (macdDataList.length == 1) {
+    if (visibleData.length > 0) {
+      if (visibleData.length == 1) {
         dynamicCandleWidth = chartWidth;
         dynamicCandleSpacing = 0;
       } else {
-        final availableWidthPerCandle = chartWidth / macdDataList.length;
+        final availableWidthPerCandle = chartWidth / visibleData.length;
         final totalRatio = candleWidth + candleSpacing;
         dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
         dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
@@ -1289,30 +1608,47 @@ class KlineChartPainter extends CustomPainter {
     final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
 
     // 收集所有有效的点
+    // 使用与M值柱状图完全相同的Y坐标计算公式：y = chartTop + (maxMacd - value) / macdRange * chartHeight
+    // 遍历visibleData，保持索引对应关系
     List<Offset> validPoints = [];
-    for (int i = 0; i < macdDataList.length; i++) {
-      final value = getValue(macdDataList[i]);
+    for (int i = 0; i < visibleData.length; i++) {
+      final kline = visibleData[i];
+      final macd = macdMap[kline.tradeDate];
+      
+      // 如果没有MACD数据，跳过（不绘制），但保持索引对应关系
+      if (macd == null) {
+        continue;
+      }
+      
+      final value = getValue(macd);
       if (!value.isNaN && !value.isInfinite) {
         final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+        // 确保使用与M值柱状图完全相同的公式和参数
         final y = chartTop + (maxMacd - value) / macdRange * chartHeight;
         validPoints.add(Offset(x, y));
+        
+        // 对于最后一个数据点，添加调试信息验证Y坐标计算
+        if (i == visibleData.length - 1) {
+          print('🔍 _drawMacdLine Y坐标计算: value=$value, y=$y');
+          print('🔍   公式: chartTop=$chartTop + (maxMacd=$maxMacd - value=$value) / macdRange=$macdRange * chartHeight=$chartHeight = $y');
+        }
       }
     }
 
-    print('🔍 MACD线条有效点数: ${validPoints.length}, 数据长度: ${macdDataList.length}');
+    print('🔍 MACD线条有效点数: ${validPoints.length}, K线数据长度: ${visibleData.length}');
 
     if (validPoints.length < 2) {
       print('⚠️ MACD线条点数不足，无法绘制');
       return;
     }
 
-    // 使用平滑曲线连接点
+    // 使用更平滑的贝塞尔曲线连接点
     final path = Path();
     path.moveTo(validPoints[0].dx, validPoints[0].dy);
 
     for (int i = 1; i < validPoints.length; i++) {
       if (i == 1) {
-        // 第一个点，使用二次贝塞尔曲线
+        // 第二个点：使用二次贝塞尔曲线
         final controlPoint = Offset(
           (validPoints[i - 1].dx + validPoints[i].dx) / 2,
           (validPoints[i - 1].dy + validPoints[i].dy) / 2,
@@ -1324,7 +1660,7 @@ class KlineChartPainter extends CustomPainter {
           validPoints[i].dy,
         );
       } else if (i == validPoints.length - 1) {
-        // 最后一个点，使用二次贝塞尔曲线
+        // 最后一个点：使用二次贝塞尔曲线
         final controlPoint = Offset(
           (validPoints[i - 1].dx + validPoints[i].dx) / 2,
           (validPoints[i - 1].dy + validPoints[i].dy) / 2,
@@ -1336,18 +1672,26 @@ class KlineChartPainter extends CustomPainter {
           validPoints[i].dy,
         );
       } else {
-        // 中间点，使用三次贝塞尔曲线
+        // 中间点：使用三次贝塞尔曲线，计算更平滑的控制点
         final prevPoint = validPoints[i - 1];
         final currentPoint = validPoints[i];
         final nextPoint = validPoints[i + 1];
         
+        // 计算方向向量
+        final dx1 = currentPoint.dx - prevPoint.dx;
+        final dy1 = currentPoint.dy - prevPoint.dy;
+        final dx2 = nextPoint.dx - currentPoint.dx;
+        final dy2 = nextPoint.dy - currentPoint.dy;
+        
+        // 使用张力系数控制曲线的平滑程度（与BOLL曲线保持一致）
+        final tension = 0.3;
         final cp1 = Offset(
-          (prevPoint.dx + currentPoint.dx) / 2,
-          (prevPoint.dy + currentPoint.dy) / 2,
+          prevPoint.dx + dx1 * tension,
+          prevPoint.dy + dy1 * tension,
         );
         final cp2 = Offset(
-          (currentPoint.dx + nextPoint.dx) / 2,
-          (currentPoint.dy + nextPoint.dy) / 2,
+          currentPoint.dx - dx2 * tension,
+          currentPoint.dy - dy2 * tension,
         );
         
         path.cubicTo(
@@ -1361,9 +1705,9 @@ class KlineChartPainter extends CustomPainter {
     canvas.drawPath(path, linePaint);
   }
 
-  // 绘制MACD标签
-  void _drawMacdLabels(Canvas canvas, Size size, List<MacdData> macdDataList,
-      double macdChartTop, double macdChartHeight) {
+  // 绘制MACD标签（包含趋势箭头，支持选中日期联动）
+  void _drawMacdLabels(Canvas canvas, Size size, List<KlineData> visibleData, List<MacdData> macdDataList,
+      int? selectedIndex, double macdChartTop, double macdChartHeight) {
     if (macdDataList.isEmpty) return;
 
     // 计算MACD值的范围
@@ -1402,6 +1746,438 @@ class KlineChartPainter extends CustomPainter {
         Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
       );
     }
+
+    // 绘制MACD指标名称和数值（在图表右上角，参考BOLL标签的样式）
+    // 如果有选中，显示选中日期的数据；否则显示最新的数据
+    MacdData? displayData;
+    if (selectedIndex != null && selectedIndex >= 0 && selectedIndex < visibleData.length) {
+      // 显示选中日期的MACD数据
+      final selectedKline = visibleData[selectedIndex];
+      displayData = macdDataList.firstWhere(
+        (m) => m.tradeDate == selectedKline.tradeDate,
+        orElse: () => macdDataList.last, // 如果找不到，使用最新的
+      );
+    } else {
+      // 显示最新的MACD数据
+      displayData = macdDataList.last;
+    }
+    
+    if (displayData != null) {
+      // 计算趋势箭头（与前一个值比较）
+      String getTrend(double? current, double? prev) {
+        if (current == null || prev == null) return '↓';
+        return current >= prev ? '↑' : '↓';
+      }
+      
+      // 查找当前数据在列表中的索引
+      int currentIndex = macdDataList.indexOf(displayData);
+      
+      // 获取前一个MACD数据
+      double? prevDif, prevDea, prevMacd;
+      if (currentIndex > 0) {
+        final prev = macdDataList[currentIndex - 1];
+        prevDif = prev.dif;
+        prevDea = prev.dea;
+        prevMacd = prev.macd;
+      }
+      
+      final difTrend = getTrend(displayData.dif, prevDif);
+      final deaTrend = getTrend(displayData.dea, prevDea);
+      final macdTrend = getTrend(displayData.macd, prevMacd);
+      
+      // 格式：MACD ▼ DIF:-0.02↓ DEA:-0.02↓ M:-0.01↓（参考图2格式）
+      final labelText = 'MACD ▼ DIF:${displayData.dif.toStringAsFixed(2)}$difTrend DEA:${displayData.dea.toStringAsFixed(2)}$deaTrend M:${displayData.macd.toStringAsFixed(2)}$macdTrend';
+      
+      final labelTextStyle = TextStyle(
+        color: Colors.grey[800],
+        fontSize: 10,
+        fontWeight: FontWeight.w500,
+      );
+      
+      final labelPainter = TextPainter(
+        text: TextSpan(text: labelText, style: labelTextStyle),
+        textAlign: TextAlign.left,
+        textDirection: TextDirection.ltr,
+      );
+      labelPainter.layout();
+      labelPainter.paint(
+        canvas,
+        Offset(size.width - labelPainter.width - 4, macdChartTop + 2),
+      );
+    }
+  }
+
+  // 绘制BOLL图表
+  void _drawBollChart(Canvas canvas, Size size, List<KlineData> visibleData,
+      List<BollData> bollDataList, double chartWidth, double bollChartTop, double bollChartHeight) {
+    if (bollDataList.isEmpty || visibleData.isEmpty) {
+      print('⚠️ BOLL图表绘制跳过: bollDataList=${bollDataList.length}, visibleData=${visibleData.length}');
+      return;
+    }
+
+    // 创建日期到BOLL数据的映射
+    final Map<String, BollData> bollMap = {};
+    for (var boll in bollDataList) {
+      bollMap[boll.tradeDate] = boll;
+    }
+
+    // 计算BOLL值的范围
+    double maxBoll = bollDataList.map((e) => math.max(e.upper, math.max(e.middle, e.lower))).reduce(math.max);
+    double minBoll = bollDataList.map((e) => math.min(e.upper, math.min(e.middle, e.lower))).reduce(math.min);
+    
+    if (maxBoll == minBoll) {
+      maxBoll = minBoll + 1.0;
+    }
+
+    final bollRange = maxBoll - minBoll;
+    if (bollRange == 0) return;
+
+    // 计算K线宽度和间距
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    
+    if (visibleData.length > 0) {
+      if (visibleData.length == 1) {
+        dynamicCandleWidth = chartWidth;
+        dynamicCandleSpacing = 0;
+      } else {
+        final availableWidthPerCandle = chartWidth / visibleData.length;
+        final totalRatio = candleWidth + candleSpacing;
+        dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+        dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+      }
+    }
+
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    // 计算价格范围（包含前复权价格和BOLL轨道）
+    double maxPrice = maxBoll;
+    double minPrice = minBoll;
+    
+    // 检查是否有前复权价格数据，如果有则包含在价格范围内
+    for (var kline in visibleData) {
+      if (kline.highQfq != null && kline.lowQfq != null) {
+        maxPrice = math.max(maxPrice, kline.highQfq!);
+        minPrice = math.min(minPrice, kline.lowQfq!);
+      } else {
+        // 如果没有前复权价格，使用普通价格
+        maxPrice = math.max(maxPrice, kline.high);
+        minPrice = math.min(minPrice, kline.low);
+      }
+    }
+    
+    // 添加边距
+    final priceRange = maxPrice - minPrice;
+    if (priceRange > 0) {
+      maxPrice += priceRange * 0.05;
+      minPrice -= priceRange * 0.05;
+    }
+    
+    final finalPriceRange = maxPrice - minPrice;
+    if (finalPriceRange == 0) return;
+
+    // 绘制网格线
+    final gridPaint = Paint()
+      ..color = Colors.grey[300]!
+      ..strokeWidth = 0.5;
+    for (int i = 0; i <= 4; i++) {
+      final y = bollChartTop + bollChartHeight * i / 4;
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(chartWidth, y),
+        gridPaint,
+      );
+    }
+
+    // 绘制K线（使用前复权价格，叠加在BOLL图表中）
+    _drawCandlesInBollChart(canvas, size, visibleData, maxPrice, minPrice, finalPriceRange, 
+        chartWidth, bollChartHeight, bollChartTop, candleTotalWidth, dynamicCandleWidth);
+
+    // 绘制BOLL上轨、中轨、下轨（在K线之上）
+    _drawBollLine(canvas, visibleData, bollMap, (boll) => boll.upper, Colors.red,
+        minPrice, maxPrice, finalPriceRange, bollChartHeight, bollChartTop, chartWidth, candleTotalWidth, dynamicCandleWidth);
+    _drawBollLine(canvas, visibleData, bollMap, (boll) => boll.middle, Colors.orange,
+        minPrice, maxPrice, finalPriceRange, bollChartHeight, bollChartTop, chartWidth, candleTotalWidth, dynamicCandleWidth);
+    _drawBollLine(canvas, visibleData, bollMap, (boll) => boll.lower, Colors.green,
+        minPrice, maxPrice, finalPriceRange, bollChartHeight, bollChartTop, chartWidth, candleTotalWidth, dynamicCandleWidth);
+  }
+
+  // 在BOLL图表中绘制K线（使用前复权价格）
+  void _drawCandlesInBollChart(Canvas canvas, Size size, List<KlineData> visibleData,
+      double maxPrice, double minPrice, double priceRange, double chartWidth, 
+      double chartHeight, double chartTop, double candleTotalWidth, double dynamicCandleWidth) {
+    for (int i = 0; i < visibleData.length; i++) {
+      final data = visibleData[i];
+      
+      // 优先使用前复权价格
+      final open = data.openQfq ?? data.open;
+      final high = data.highQfq ?? data.high;
+      final low = data.lowQfq ?? data.low;
+      final close = data.closeQfq ?? data.close;
+      
+      final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+      
+      // 计算价格对应的Y坐标
+      final highY = chartTop + (maxPrice - high) / priceRange * chartHeight;
+      final lowY = chartTop + (maxPrice - low) / priceRange * chartHeight;
+      final openY = chartTop + (maxPrice - open) / priceRange * chartHeight;
+      final closeY = chartTop + (maxPrice - close) / priceRange * chartHeight;
+
+      // 判断涨跌
+      final isRising = close >= open;
+      final color = isRising ? Colors.red[800]! : Colors.green[700]!;
+
+      // 计算实体位置
+      final bodyTop = math.min(openY, closeY);
+      final bodyBottom = math.max(openY, closeY);
+      final bodyHeight = math.max(bodyBottom - bodyTop, 1.0);
+
+      // 绘制实体
+      final bodyPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+
+      canvas.drawRect(
+        Rect.fromLTWH(
+          x - dynamicCandleWidth / 2,
+          bodyTop,
+          dynamicCandleWidth,
+          bodyHeight,
+        ),
+        bodyPaint,
+      );
+
+      // 如果是涨（红柱），绘制白色内部矩形实现空心效果
+      if (isRising) {
+        final whitePaint = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill;
+        
+        final whiteRectWidth = math.max(dynamicCandleWidth - 2.0, 1.0);
+        final whiteRectHeight = math.max(bodyHeight - 2.0, 1.0);
+        final whiteRectLeft = x - dynamicCandleWidth / 2 + 1.0;
+        final whiteRectTop = bodyTop + 1.0;
+        
+        canvas.drawRect(
+          Rect.fromLTWH(
+            whiteRectLeft,
+            whiteRectTop,
+            whiteRectWidth,
+            whiteRectHeight,
+          ),
+          whitePaint,
+        );
+      }
+
+      // 绘制上下影线
+      final shadowPaint = Paint()
+        ..color = color
+        ..strokeWidth = 1.0;
+      
+      if (highY < bodyTop) {
+        canvas.drawLine(
+          Offset(x, highY),
+          Offset(x, bodyTop),
+          shadowPaint,
+        );
+      }
+      
+      if (lowY > bodyBottom) {
+        canvas.drawLine(
+          Offset(x, bodyBottom),
+          Offset(x, lowY),
+          shadowPaint,
+        );
+      }
+    }
+  }
+
+  // 绘制BOLL线（使用更平滑的算法）
+  void _drawBollLine(Canvas canvas, List<KlineData> visibleData,
+      Map<String, BollData> bollMap, double Function(BollData) getValue, Color color,
+      double minBoll, double maxBoll, double bollRange,
+      double chartHeight, double chartTop, double chartWidth,
+      double candleTotalWidth, double dynamicCandleWidth) {
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // 收集所有有效的点
+    List<Offset> validPoints = [];
+    for (int i = 0; i < visibleData.length; i++) {
+      final kline = visibleData[i];
+      final boll = bollMap[kline.tradeDate];
+      
+      if (boll != null) {
+        final value = getValue(boll);
+        if (!value.isNaN && !value.isInfinite) {
+          final x = i * candleTotalWidth + dynamicCandleWidth / 2;
+          final y = chartTop + chartHeight - ((value - minBoll) / bollRange * chartHeight);
+          validPoints.add(Offset(x, y));
+        }
+      }
+    }
+
+    if (validPoints.length < 2) return;
+
+    // 使用更平滑的贝塞尔曲线连接
+    final path = Path();
+    path.moveTo(validPoints[0].dx, validPoints[0].dy);
+
+    for (int i = 1; i < validPoints.length; i++) {
+      if (i == 1) {
+        // 第二个点：使用二次贝塞尔曲线
+        final controlPoint = Offset(
+          (validPoints[i - 1].dx + validPoints[i].dx) / 2,
+          (validPoints[i - 1].dy + validPoints[i].dy) / 2,
+        );
+        path.quadraticBezierTo(
+          controlPoint.dx,
+          controlPoint.dy,
+          validPoints[i].dx,
+          validPoints[i].dy,
+        );
+      } else if (i == validPoints.length - 1) {
+        // 最后一个点：使用二次贝塞尔曲线
+        final controlPoint = Offset(
+          (validPoints[i - 1].dx + validPoints[i].dx) / 2,
+          (validPoints[i - 1].dy + validPoints[i].dy) / 2,
+        );
+        path.quadraticBezierTo(
+          controlPoint.dx,
+          controlPoint.dy,
+          validPoints[i].dx,
+          validPoints[i].dy,
+        );
+      } else {
+        // 中间点：使用三次贝塞尔曲线，计算更平滑的控制点
+        final prevPoint = validPoints[i - 1];
+        final currentPoint = validPoints[i];
+        final nextPoint = validPoints[i + 1];
+        
+        // 计算方向向量
+        final dx1 = currentPoint.dx - prevPoint.dx;
+        final dy1 = currentPoint.dy - prevPoint.dy;
+        final dx2 = nextPoint.dx - currentPoint.dx;
+        final dy2 = nextPoint.dy - currentPoint.dy;
+        
+        // 使用张力系数控制曲线的平滑程度
+        final tension = 0.3;
+        final cp1 = Offset(
+          prevPoint.dx + dx1 * tension,
+          prevPoint.dy + dy1 * tension,
+        );
+        final cp2 = Offset(
+          currentPoint.dx - dx2 * tension,
+          currentPoint.dy - dy2 * tension,
+        );
+        
+        path.cubicTo(
+          cp1.dx, cp1.dy,
+          cp2.dx, cp2.dy,
+          currentPoint.dx, currentPoint.dy,
+        );
+      }
+    }
+
+    canvas.drawPath(path, linePaint);
+  }
+
+  // 绘制BOLL标签（支持选中日期联动）
+  void _drawBollLabels(Canvas canvas, Size size, List<KlineData> visibleData, List<BollData> bollDataList,
+      int? selectedIndex, double bollChartTop, double bollChartHeight) {
+    if (bollDataList.isEmpty) return;
+
+    // 计算BOLL值的范围
+    double maxBoll = bollDataList.map((e) => math.max(e.upper, math.max(e.middle, e.lower))).reduce(math.max);
+    double minBoll = bollDataList.map((e) => math.min(e.upper, math.min(e.middle, e.lower))).reduce(math.min);
+    
+    if (maxBoll == minBoll) {
+      maxBoll = minBoll + 1.0;
+    }
+
+    final textStyle = TextStyle(
+      color: Colors.grey[700],
+      fontSize: 9,
+    );
+    final textPainter = TextPainter(
+      textAlign: TextAlign.left,
+      textDirection: TextDirection.ltr,
+    );
+
+    // 绘制BOLL标签（覆盖在图表上，在图表内部显示）
+    for (int i = 0; i <= 4; i++) {
+      final value = maxBoll - (maxBoll - minBoll) * i / 4;
+      textPainter.text = TextSpan(
+        text: value.toStringAsFixed(2),
+        style: textStyle,
+      );
+      textPainter.layout();
+      final y = bollChartTop + bollChartHeight * i / 4;
+      textPainter.paint(
+        canvas,
+        Offset(priceLabelPadding, y - textPainter.height / 2 - 2),
+      );
+    }
+
+    // 绘制BOLL指标名称和数值（在图表右上角）
+    // 如果有选中，显示选中日期的数据；否则显示最新的数据
+    BollData? displayData;
+    if (selectedIndex != null && selectedIndex >= 0 && selectedIndex < visibleData.length) {
+      // 显示选中日期的BOLL数据
+      final selectedKline = visibleData[selectedIndex];
+      displayData = bollDataList.firstWhere(
+        (b) => b.tradeDate == selectedKline.tradeDate,
+        orElse: () => bollDataList.last, // 如果找不到，使用最新的
+      );
+    } else {
+      // 显示最新的BOLL数据
+      displayData = bollDataList.last;
+    }
+    
+    if (displayData != null) {
+      // 计算趋势箭头（与前一个值比较）
+      String getTrend(double? current, double? prev) {
+        if (current == null || prev == null) return '↓';
+        return current >= prev ? '↑' : '↓';
+      }
+      
+      // 查找当前数据在列表中的索引
+      int currentIndex = bollDataList.indexOf(displayData);
+      
+      // 获取前一个BOLL数据
+      double? prevUpper, prevMiddle, prevLower;
+      if (currentIndex > 0) {
+        final prev = bollDataList[currentIndex - 1];
+        prevUpper = prev.upper;
+        prevMiddle = prev.middle;
+        prevLower = prev.lower;
+      }
+      
+      final upperTrend = getTrend(displayData.upper, prevUpper);
+      final middleTrend = getTrend(displayData.middle, prevMiddle);
+      final lowerTrend = getTrend(displayData.lower, prevLower);
+      
+      final labelText = 'BOLL ▼ MID:${displayData.middle.toStringAsFixed(2)}$middleTrend UP:${displayData.upper.toStringAsFixed(2)}$upperTrend LOW:${displayData.lower.toStringAsFixed(2)}$lowerTrend';
+      
+      final labelTextStyle = TextStyle(
+        color: Colors.grey[800],
+        fontSize: 10,
+        fontWeight: FontWeight.w500,
+      );
+      
+      final labelPainter = TextPainter(
+        text: TextSpan(text: labelText, style: labelTextStyle),
+        textAlign: TextAlign.left,
+        textDirection: TextDirection.ltr,
+      );
+      labelPainter.layout();
+      labelPainter.paint(
+        canvas,
+        Offset(size.width - labelPainter.width - 4, bollChartTop + 2),
+      );
+    }
   }
 
   @override
@@ -1415,6 +2191,9 @@ class KlineChartPainter extends CustomPainter {
       return true;
     }
     if (oldDelegate.macdDataList.length != macdDataList.length) {
+      return true;
+    }
+    if (oldDelegate.bollDataList.length != bollDataList.length) {
       return true;
     }
     // 比较第一个和最后一个数据点，确保数据范围变化时重新绘制

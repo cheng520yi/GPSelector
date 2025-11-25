@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
+import '../models/boll_data.dart';
 import '../services/stock_api_service.dart';
 import '../services/favorite_stock_service.dart';
 import '../widgets/kline_chart_widget.dart';
@@ -25,6 +26,7 @@ class StockDetailScreen extends StatefulWidget {
 class _StockDetailScreenState extends State<StockDetailScreen> {
   List<KlineData> _klineDataList = [];
   List<MacdData> _macdDataList = [];
+  List<BollData> _bollDataList = [];
   bool _isLoading = true;
   String? _errorMessage;
   int _selectedDays = 60; // 默认显示60天
@@ -123,7 +125,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         requestDays = (_selectedDays * 1.5).round() + 20;
       }
       
-      // 并行加载K线数据和MACD数据
+      // 并行加载K线数据和因子数据（MACD和BOLL）
       // 对于月K，确保endDate包含本月最后一天，以便获取本月数据
       DateTime endDate = DateTime.now();
       if (_selectedChartType == 'monthly') {
@@ -133,29 +135,56 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         endDate = lastDayOfMonth;
       }
       final DateTime startDate = endDate.subtract(Duration(days: requestDays));
-      final String startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
-      final String endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+      final String startDateStr = DateFormat('yyyyMMdd').format(startDate);
+      final String endDateStr = DateFormat('yyyyMMdd').format(endDate);
       
-      // 根据图表类型调用不同的API
-      final results = await Future.wait([
-        StockApiService.getKlineData(
-          tsCode: widget.stockInfo.tsCode,
-          kLineType: _selectedChartType, // 使用选择的图表类型
-          days: requestDays,
-          stockName: widget.stockInfo.name, // 传入股票名称，用于判断是否为指数
-        ),
-        // MACD数据目前只支持日K，周K和月K暂时不加载MACD
-        _selectedChartType == 'daily' 
-          ? StockApiService.getMacdData(
+      // 先获取K线数据
+      List<KlineData> klineDataList = await StockApiService.getKlineData(
+        tsCode: widget.stockInfo.tsCode,
+        kLineType: _selectedChartType, // 使用选择的图表类型
+        days: requestDays,
+        stockName: widget.stockInfo.name, // 传入股票名称，用于判断是否为指数
+      );
+      
+      // 使用stk_factor接口获取MACD和BOLL数据（目前只支持日K）
+      final factorData = _selectedChartType == 'daily' 
+          ? await StockApiService.getFactorProData(
               tsCode: widget.stockInfo.tsCode,
               startDate: startDateStr,
               endDate: endDateStr,
             )
-          : Future.value(<MacdData>[]), // 周K和月K暂时返回空MACD数据
-      ]);
-
-      List<KlineData> klineDataList = results[0] as List<KlineData>;
-      final macdDataList = results[1] as List<MacdData>;
+          : <String, dynamic>{'macd': <MacdData>[], 'boll': <BollData>[]};
+      
+      final macdDataList = factorData['macd'] as List<MacdData>? ?? <MacdData>[];
+      final bollDataList = factorData['boll'] as List<BollData>? ?? <BollData>[];
+      final qfqPriceMap = factorData['qfq_prices'] as Map<String, Map<String, double>>? ?? <String, Map<String, double>>{};
+      
+      // 更新K线数据的前复权价格
+      if (qfqPriceMap.isNotEmpty) {
+        for (int i = 0; i < klineDataList.length; i++) {
+          final kline = klineDataList[i];
+          final qfqPrices = qfqPriceMap[kline.tradeDate];
+          if (qfqPrices != null) {
+            klineDataList[i] = KlineData(
+              tsCode: kline.tsCode,
+              tradeDate: kline.tradeDate,
+              open: kline.open,
+              high: kline.high,
+              low: kline.low,
+              close: kline.close,
+              preClose: kline.preClose,
+              change: kline.change,
+              pctChg: kline.pctChg,
+              vol: kline.vol,
+              amount: kline.amount,
+              openQfq: qfqPrices['open_qfq'],
+              highQfq: qfqPrices['high_qfq'],
+              lowQfq: qfqPrices['low_qfq'],
+              closeQfq: qfqPrices['close_qfq'],
+            );
+          }
+        }
+      }
 
       // 数据已经按时间排序，直接使用
       // 确保数据按时间正序排列（从早到晚）
@@ -163,6 +192,10 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
       
       final sortedMacdData = macdDataList.toList()
+        ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+
+      // 对BOLL数据也进行排序
+      final sortedBollData = bollDataList.toList()
         ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
 
       // 根据K线类型决定是否获取实时数据
@@ -219,10 +252,15 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       if (sortedMacdData.isNotEmpty) {
         print('✅ MACD数据示例: 日期=${sortedMacdData.first.tradeDate}, DIF=${sortedMacdData.first.dif}, DEA=${sortedMacdData.first.dea}, MACD=${sortedMacdData.first.macd}');
       }
+      print('✅ BOLL数据: ${sortedBollData.length}条');
+      if (sortedBollData.isNotEmpty) {
+        print('✅ BOLL数据示例: 日期=${sortedBollData.first.tradeDate}, 上轨=${sortedBollData.first.upper}, 中轨=${sortedBollData.first.middle}, 下轨=${sortedBollData.first.lower}');
+      }
 
       setState(() {
         _klineDataList = sortedData;
         _macdDataList = sortedMacdData;
+        _bollDataList = sortedBollData;
         _isLoading = false;
         // 切换图表类型后，清除选中状态，让顶部显示最新数据
         // 对于周K和月K，_klineDataList.last已经是累积后的最新一周或一月的数据
@@ -1243,6 +1281,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
             child: KlineChartWidget(
               klineDataList: _klineDataList,
               macdDataList: _macdDataList,
+              bollDataList: _bollDataList,
               displayDays: _selectedDays, // 只显示选择的天数，但均线计算用全部数据
               subChartCount: _subChartCount, // 显示选择的副图数量
               chartType: _selectedChartType, // 传递图表类型，用于格式化日期标签

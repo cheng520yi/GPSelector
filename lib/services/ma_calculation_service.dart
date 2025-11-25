@@ -37,18 +37,39 @@ class MaCalculationService {
     return sum / 20;
   }
 
-  // 计算价格距离均线的百分比
+  // 计算价格距离均线的百分比（已废弃，使用calculateMaDistance）
   static double calculateDistanceToMAInPoints(double currentPrice, double ma) {
-    if (ma == 0) return 0.0;
-    // 计算百分比距离：(当前价格 - 均线) / 均线 * 100
-    return ((currentPrice - ma) / ma * 100).abs();
+    return calculateMaDistance(currentPrice, ma);
   }
 
-  // 计算均线偏离百分比
+  /// 计算均线偏离百分比
+  /// 以均线为基准，计算当前价格与均线的偏离的绝对值
+  /// 
+  /// 公式：偏离百分比 = |(当前价格 - 均线) / 均线| * 100
+  /// 
+  /// 示例：
+  /// - 当前价格 = 10元，均线 = 8元，偏离 = |(10-8)/8| * 100 = 25%
+  /// - 当前价格 = 8元，均线 = 10元，偏离 = |(8-10)/10| * 100 = 20%
+  /// 
+  /// [currentPrice] 当前价格
+  /// [ma] 均线值（作为基准）
+  /// 返回偏离百分比（绝对值，单位：%）
   static double calculateMaDistance(double currentPrice, double ma) {
-    if (ma == 0) return 0.0;
-    // 计算百分比距离：(当前价格 - 均线) / 均线 * 100
-    return ((currentPrice - ma) / ma * 100).abs();
+    // 如果均线为0，无法计算偏离，返回0
+    if (ma == 0 || ma.isNaN || ma.isInfinite) {
+      return 0.0;
+    }
+    
+    // 如果当前价格为0或无效值，返回0
+    if (currentPrice == 0 || currentPrice.isNaN || currentPrice.isInfinite) {
+      return 0.0;
+    }
+    
+    // 以均线为基准，计算偏离百分比：|(当前价格 - 均线) / 均线| * 100
+    final deviation = (currentPrice - ma) / ma;
+    final deviationPercent = deviation.abs() * 100;
+    
+    return deviationPercent;
   }
 
   // 检查是否满足均线距离条件（百分比）

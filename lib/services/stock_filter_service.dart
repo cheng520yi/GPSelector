@@ -15,6 +15,9 @@ class StockFilterService {
   // 预定义的成交额筛选条件
   static const List<double> amountThresholds = [5.0, 10.0, 20.0, 50.0, 100.0];
   static const double defaultMinAmountThreshold = 5.0; // 默认最低成交额阈值（亿元）
+  
+  // 用于调试日志的目标股票代码（赛微电子）
+  static const String targetStockCode = '300456.SZ';
 
   // 基于条件组合筛选股票
   static Future<List<StockRanking>> filterStocksWithCombination({
@@ -111,6 +114,15 @@ class StockFilterService {
       print('📋 当前黑名单包含 ${blacklist.length} 只股票');
       ConsoleCaptureService.instance.capturePrint('📋 当前黑名单包含 ${blacklist.length} 只股票');
       
+      final bool isInBlacklist = blacklist.contains(targetStockCode);
+      if (isInBlacklist) {
+        print('❌ [赛微电子] 在黑名单中，将被过滤');
+        ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在黑名单中，将被过滤');
+      } else {
+        print('✅ [赛微电子] 不在黑名单中，通过黑名单筛选');
+        ConsoleCaptureService.instance.capturePrint('✅ [赛微电子] 不在黑名单中，通过黑名单筛选');
+      }
+      
       final filteredStockPool = stockPool.where((stock) => !blacklist.contains(stock.tsCode)).toList();
       print('✅ 黑名单过滤完成: ${filteredStockPool.length}只股票通过黑名单筛选 (移除了${stockPool.length - filteredStockPool.length}只黑名单股票)');
       ConsoleCaptureService.instance.capturePrint('✅ 黑名单过滤完成: ${filteredStockPool.length}只股票通过黑名单筛选 (移除了${stockPool.length - filteredStockPool.length}只黑名单股票)');
@@ -189,6 +201,8 @@ class StockFilterService {
       List<StockRanking> candidates = [];
       for (StockInfo stock in filteredStockPool) {
         final KlineData? klineData = klineDataMap[stock.tsCode];
+        final bool isTargetStock = stock.tsCode == targetStockCode;
+        
         if (klineData != null) {
           bool passesAmountFilter;
           
@@ -208,6 +222,12 @@ class StockFilterService {
             passesAmountFilter = klineData.amountInYi >= combination.amountThreshold;
           }
           
+          // 为赛微电子打印详细日志
+          if (isTargetStock) {
+            print('🔍 [赛微电子] 条件1-成交额筛选: 成交额=${klineData.amountInYi.toStringAsFixed(2)}亿元, 阈值=${combination.amountRangeConfig.enabled ? (combination.amountRangeConfig.maxAmount >= 1000 ? '≥${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}' : '${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}~${combination.amountRangeConfig.maxAmount.toStringAsFixed(0)}') : '≥${combination.amountThreshold.toStringAsFixed(0)}'}亿元, 通过=${passesAmountFilter ? '✅' : '❌'}');
+            ConsoleCaptureService.instance.capturePrint('🔍 [赛微电子] 条件1-成交额筛选: 成交额=${klineData.amountInYi.toStringAsFixed(2)}亿元, 阈值=${combination.amountRangeConfig.enabled ? (combination.amountRangeConfig.maxAmount >= 1000 ? '≥${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}' : '${combination.amountRangeConfig.minAmount.toStringAsFixed(0)}~${combination.amountRangeConfig.maxAmount.toStringAsFixed(0)}') : '≥${combination.amountThreshold.toStringAsFixed(0)}'}亿元, 通过=${passesAmountFilter ? '✅' : '❌'}');
+          }
+          
           if (passesAmountFilter) {
             candidates.add(StockRanking(
               stockInfo: stock,
@@ -215,7 +235,13 @@ class StockFilterService {
               amountInYi: klineData.amountInYi,
               rank: 0,
             ));
+          } else if (isTargetStock) {
+            print('❌ [赛微电子] 在条件1-成交额筛选中被过滤');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件1-成交额筛选中被过滤');
           }
+        } else if (isTargetStock) {
+          print('❌ [赛微电子] 未获取到K线数据，在条件1-成交额筛选中被过滤');
+          ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 未获取到K线数据，在条件1-成交额筛选中被过滤');
         }
       }
       print('✅ 条件1完成: ${candidates.length}只股票通过成交额筛选');
@@ -231,24 +257,31 @@ class StockFilterService {
         
         for (StockRanking ranking in candidates) {
           processed++;
-          if (processed <= 5) {
-            // 使用实时数据时，使用计算出的涨跌幅
-            final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
+          final bool isTargetStock = ranking.stockInfo.tsCode == targetStockCode;
+          final bool shouldPrint = processed <= 5 || isTargetStock;
+          
+          // 使用实时数据时，使用计算出的涨跌幅
+          final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
+          
+          if (shouldPrint) {
             print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
             ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 涨跌幅${pctChg.toStringAsFixed(2)}% (限制: ${combination.pctChgMin}%~${combination.pctChgMax}%)');
-            if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
+          }
+          
+          if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
+            if (shouldPrint) {
               print('    ✅ 通过涨跌幅筛选');
               ConsoleCaptureService.instance.capturePrint('    ✅ 通过涨跌幅筛选');
-              filteredCandidates.add(ranking);
-            } else {
+            }
+            filteredCandidates.add(ranking);
+          } else {
+            if (shouldPrint) {
               print('    ❌ 未通过涨跌幅筛选');
               ConsoleCaptureService.instance.capturePrint('    ❌ 未通过涨跌幅筛选');
             }
-          } else {
-            // 对于第6个及以后的股票，只进行筛选不打印详情
-            final pctChg = useIFinDRealTime ? ranking.klineData.calculatedPctChg : ranking.klineData.pctChg;
-            if (pctChg >= combination.pctChgMin && pctChg <= combination.pctChgMax) {
-              filteredCandidates.add(ranking);
+            if (isTargetStock) {
+              print('❌ [赛微电子] 在条件2-涨跌幅筛选中被过滤: 涨跌幅${pctChg.toStringAsFixed(2)}% 不在范围 [${combination.pctChgMin}%, ${combination.pctChgMax}%]');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件2-涨跌幅筛选中被过滤: 涨跌幅${pctChg.toStringAsFixed(2)}% 不在范围 [${combination.pctChgMin}%, ${combination.pctChgMax}%]');
             }
           }
         }
@@ -268,12 +301,15 @@ class StockFilterService {
         
         try {
           // 使用Tushare接口获取历史K线数据（需要60天数据来计算MA20）
+          // 确保历史数据包含筛选日期，所以需要获取从筛选日期往前60天的数据
+          final selectedDateStr = DateFormat('yyyyMMdd').format(combination.selectedDate);
           historicalKlineDataMap = await StockApiService.getBatchKlineData(
             tsCodes: candidateTsCodes,
             kLineType: 'daily', // 日K线
             days: 60, // 获取60天数据
+            endDate: selectedDateStr, // 使用筛选日期作为结束日期，确保包含筛选日期
           );
-          print('✅ 获取到 ${historicalKlineDataMap.length} 只股票的历史K线数据');
+          print('✅ 获取到 ${historicalKlineDataMap.length} 只股票的历史K线数据（截止到筛选日期：${DateFormat('yyyy-MM-dd').format(combination.selectedDate)}）');
         } catch (e) {
           print('❌ 获取历史K线数据失败: $e');
           ConsoleCaptureService.instance.capturePrint('❌ 获取历史K线数据失败: $e');
@@ -404,6 +440,34 @@ class StockFilterService {
     }
   }
 
+  // 辅助函数：找到筛选日期在历史数据中的索引
+  static int _findSelectedDateIndex(List<KlineData> historicalData, DateTime selectedDate) {
+    final selectedDateStr = DateFormat('yyyyMMdd').format(selectedDate);
+    
+    // 找到筛选日期在历史数据中的索引
+    // historicalData[0] 是最早的数据，historicalData[historicalData.length-1] 是最新的数据
+    int selectedDateIndex = -1;
+    for (int i = historicalData.length - 1; i >= 0; i--) {
+      if (historicalData[i].tradeDate == selectedDateStr) {
+        selectedDateIndex = i;
+        break;
+      }
+    }
+    
+    // 如果找不到筛选日期，尝试找最接近的日期（往前找）
+    if (selectedDateIndex < 0) {
+      // 从最新日期往前找，找到第一个小于等于筛选日期的数据
+      for (int i = historicalData.length - 1; i >= 0; i--) {
+        if (historicalData[i].tradeDate.compareTo(selectedDateStr) <= 0) {
+          selectedDateIndex = i;
+          break;
+        }
+      }
+    }
+    
+    return selectedDateIndex;
+  }
+
   // 均线偏离筛选
   static Future<List<StockRanking>> _filterByMaDistance(
     List<StockRanking> candidates,
@@ -416,8 +480,9 @@ class StockFilterService {
     
     for (StockRanking ranking in candidates) {
       processed++;
-      // 只打印前5个股票的详细过程
-      bool shouldPrintDetails = processed <= 5;
+      final bool isTargetStock = ranking.stockInfo.tsCode == targetStockCode;
+      // 只打印前5个股票的详细过程，或者如果是赛微电子也打印
+      bool shouldPrintDetails = processed <= 5 || isTargetStock;
       
       try {
         if (processed % 10 == 0) {
@@ -433,79 +498,127 @@ class StockFilterService {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，跳过');
             ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，跳过');
           }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: 历史数据不足 (${historicalData?.length ?? 0}天，需要≥20天)');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: 历史数据不足 (${historicalData?.length ?? 0}天，需要≥20天)');
+          }
           continue; // 数据不足，跳过
         }
+        
+        // 找到筛选日期在历史数据中的索引
+        final selectedDateIndex = _findSelectedDateIndex(historicalData, combination.selectedDate);
+        if (selectedDateIndex < 0) {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 找不到筛选日期对应的数据');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 找不到筛选日期对应的数据');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: 找不到筛选日期对应的数据');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: 找不到筛选日期对应的数据');
+          }
+          continue;
+        }
+        
+        // 获取筛选日期当天的价格
+        final selectedDateKlineData = historicalData[selectedDateIndex];
+        final selectedDatePrice = selectedDateKlineData.close;
         
         bool passesMaDistance = true;
         List<String> failedConditions = [];
         
-        // 检查MA5偏离
+        // 检查MA5偏离 - 使用筛选日期当天的价格和当天的MA5
         if (combination.ma5Config.enabled) {
-          final ma5 = MaCalculationService.calculateMA5(historicalData);
-          // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
-          final ma5Distance = MaCalculationService.calculateMaDistance(
-            currentPrice,
-            ma5,
-          );
-          if (shouldPrintDetails) {
-            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${currentPrice.toStringAsFixed(2)}元, MA5=${ma5.toStringAsFixed(2)}元, MA5偏离 ${ma5Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma5Config.distance}%)');
-          }
-          if (ma5Distance > combination.ma5Config.distance) {
+          if (selectedDateIndex + 1 < 5) {
             passesMaDistance = false;
-            failedConditions.add('MA5偏离${ma5Distance.toStringAsFixed(2)}% > ${combination.ma5Config.distance}%');
+            failedConditions.add('MA5数据不足（需要5天，实际${selectedDateIndex + 1}天）');
+          } else {
+            // 计算筛选日期当天的MA5
+            final ma5 = MaCalculationService.calculateMA5(historicalData.sublist(selectedDateIndex - 4, selectedDateIndex + 1));
+            final ma5Distance = MaCalculationService.calculateMaDistance(
+              selectedDatePrice,
+              ma5,
+            );
+            if (shouldPrintDetails) {
+              print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA5=${ma5.toStringAsFixed(2)}元, MA5偏离 ${ma5Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma5Config.distance}%)');
+              ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA5=${ma5.toStringAsFixed(2)}元, MA5偏离 ${ma5Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma5Config.distance}%)');
+            }
+            if (ma5Distance > combination.ma5Config.distance) {
+              passesMaDistance = false;
+              failedConditions.add('MA5偏离${ma5Distance.toStringAsFixed(2)}% > ${combination.ma5Config.distance}%');
+            }
           }
         }
         
-        // 检查MA10偏离
+        // 检查MA10偏离 - 使用筛选日期当天的价格和当天的MA10
         if (combination.ma10Config.enabled && passesMaDistance) {
-          final ma10 = MaCalculationService.calculateMA10(historicalData);
-          // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
-          final ma10Distance = MaCalculationService.calculateMaDistance(
-            currentPrice,
-            ma10,
-          );
-          if (shouldPrintDetails) {
-            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${currentPrice.toStringAsFixed(2)}元, MA10=${ma10.toStringAsFixed(2)}元, MA10偏离 ${ma10Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma10Config.distance}%)');
-          }
-          if (ma10Distance > combination.ma10Config.distance) {
+          if (selectedDateIndex + 1 < 10) {
             passesMaDistance = false;
-            failedConditions.add('MA10偏离${ma10Distance.toStringAsFixed(2)}% > ${combination.ma10Config.distance}%');
+            failedConditions.add('MA10数据不足（需要10天，实际${selectedDateIndex + 1}天）');
+          } else {
+            // 计算筛选日期当天的MA10
+            final ma10 = MaCalculationService.calculateMA10(historicalData.sublist(selectedDateIndex - 9, selectedDateIndex + 1));
+            final ma10Distance = MaCalculationService.calculateMaDistance(
+              selectedDatePrice,
+              ma10,
+            );
+            if (shouldPrintDetails) {
+              print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA10=${ma10.toStringAsFixed(2)}元, MA10偏离 ${ma10Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma10Config.distance}%)');
+              ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA10=${ma10.toStringAsFixed(2)}元, MA10偏离 ${ma10Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma10Config.distance}%)');
+            }
+            if (ma10Distance > combination.ma10Config.distance) {
+              passesMaDistance = false;
+              failedConditions.add('MA10偏离${ma10Distance.toStringAsFixed(2)}% > ${combination.ma10Config.distance}%');
+            }
           }
         }
         
-        // 检查MA20偏离
+        // 检查MA20偏离 - 使用筛选日期当天的价格和当天的MA20
         if (combination.ma20Config.enabled && passesMaDistance) {
-          final ma20 = MaCalculationService.calculateMA20(historicalData);
-          // 使用实时数据时，使用实时价格；否则使用历史价格
-          final currentPrice = useIFinDRealTime ? ranking.klineData.close : ranking.klineData.close;
-          final ma20Distance = MaCalculationService.calculateMaDistance(
-            currentPrice,
-            ma20,
-          );
-          if (shouldPrintDetails) {
-            print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 当前价${currentPrice.toStringAsFixed(2)}元, MA20=${ma20.toStringAsFixed(2)}元, MA20偏离 ${ma20Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma20Config.distance}%)');
-          }
-          if (ma20Distance > combination.ma20Config.distance) {
+          if (selectedDateIndex + 1 < 20) {
             passesMaDistance = false;
-            failedConditions.add('MA20偏离${ma20Distance.toStringAsFixed(2)}% > ${combination.ma20Config.distance}%');
+            failedConditions.add('MA20数据不足（需要20天，实际${selectedDateIndex + 1}天）');
+          } else {
+            // 计算筛选日期当天的MA20
+            final ma20 = MaCalculationService.calculateMA20(historicalData.sublist(selectedDateIndex - 19, selectedDateIndex + 1));
+            final ma20Distance = MaCalculationService.calculateMaDistance(
+              selectedDatePrice,
+              ma20,
+            );
+            if (shouldPrintDetails) {
+              print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA20=${ma20.toStringAsFixed(2)}元, MA20偏离 ${ma20Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma20Config.distance}%)');
+              ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 筛选日期(${selectedDateKlineData.tradeDate})价格${selectedDatePrice.toStringAsFixed(2)}元, MA20=${ma20.toStringAsFixed(2)}元, MA20偏离 ${ma20Distance.toStringAsFixed(2)}% (限制: ≤${combination.ma20Config.distance}%)');
+            }
+            if (ma20Distance > combination.ma20Config.distance) {
+              passesMaDistance = false;
+              failedConditions.add('MA20偏离${ma20Distance.toStringAsFixed(2)}% > ${combination.ma20Config.distance}%');
+            }
           }
         }
         
         if (passesMaDistance) {
           if (shouldPrintDetails) {
             print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线偏离筛选');
+            ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线偏离筛选');
           }
           filteredCandidates.add(ranking);
         } else {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线偏离筛选 - ${failedConditions.join(', ')}');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线偏离筛选 - ${failedConditions.join(', ')}');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: ${failedConditions.join(', ')}');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件3-均线偏离筛选中被过滤: ${failedConditions.join(', ')}');
           }
         }
       } catch (e) {
         if (shouldPrintDetails) {
           print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+          ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+        }
+        if (isTargetStock) {
+          print('❌ [赛微电子] 在条件3-均线偏离筛选中异常: $e');
+          ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件3-均线偏离筛选中异常: $e');
         }
         continue;
       }
@@ -526,8 +639,9 @@ class StockFilterService {
     
     for (StockRanking ranking in candidates) {
       processed++;
-      // 只打印前5个股票的详细过程
-      bool shouldPrintDetails = processed <= 5;
+      final bool isTargetStock = ranking.stockInfo.tsCode == targetStockCode;
+      // 只打印前5个股票的详细过程，或者如果是赛微电子也打印
+      bool shouldPrintDetails = processed <= 5 || isTargetStock;
       
       try {
         if (processed % 10 == 0) {
@@ -550,6 +664,11 @@ class StockFilterService {
         if (historicalData == null || historicalData.length < requiredDataLength) {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，需要${requiredDataLength}天，实际${historicalData?.length ?? 0}天，跳过');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据不足，需要${requiredDataLength}天，实际${historicalData?.length ?? 0}天，跳过');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 历史数据不足 (需要${requiredDataLength}天，实际${historicalData?.length ?? 0}天)');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 历史数据不足 (需要${requiredDataLength}天，实际${historicalData?.length ?? 0}天)');
           }
           continue; // 数据不足，跳过
         }
@@ -560,25 +679,45 @@ class StockFilterService {
         final maTypeName = combination.consecutiveDaysConfig.maType == 'ma5' ? 'MA5' : 
                           combination.consecutiveDaysConfig.maType == 'ma10' ? 'MA10' : 'MA20';
         
-        if (shouldPrintDetails) {
-          print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 检查连续${requiredDays}天收盘价高于${maTypeName}');
+        // 找到筛选日期在历史数据中的索引
+        final selectedDateIndex = _findSelectedDateIndex(historicalData, combination.selectedDate);
+        if (selectedDateIndex < 0) {
+          if (shouldPrintDetails) {
+            print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 找不到筛选日期对应的数据');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 找不到筛选日期对应的数据');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 找不到筛选日期对应的数据');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 找不到筛选日期对应的数据');
+          }
+          continue;
         }
         
-        // 从最新日期开始往前检查连续天数
+        if (shouldPrintDetails) {
+          print('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 从筛选日期开始检查连续${requiredDays}天收盘价高于${maTypeName}');
+          ConsoleCaptureService.instance.capturePrint('  📊 ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 从筛选日期开始检查连续${requiredDays}天收盘价高于${maTypeName}');
+        }
+        
+        // 从筛选日期开始往前检查连续天数
         // historicalData[0] 是最早的数据，historicalData[historicalData.length-1] 是最新的数据
-        // 所以我们需要从数组末尾开始往前遍历
         for (int i = 0; i < requiredDays; i++) {
-          final dataIndex = historicalData.length - 1 - i; // 从最新数据开始往前
-          final klineData = historicalData[dataIndex]; // 第i天的数据（从最新日期开始往前）
-          double maValue;
-          
-          // 如果是使用实时数据且检查的是最新一天，使用实时价格
-          double currentPrice;
-          if (useIFinDRealTime && i == 0) {
-            currentPrice = ranking.klineData.close; // 使用实时价格
-          } else {
-            currentPrice = klineData.close; // 使用历史价格
+          final dataIndex = selectedDateIndex - i; // 从筛选日期开始往前
+          if (dataIndex < 0) {
+            passesConsecutiveDays = false;
+            if (shouldPrintDetails) {
+              print('    ❌ 数据不足，无法检查第${i + 1}天');
+              ConsoleCaptureService.instance.capturePrint('    ❌ 数据不足，无法检查第${i + 1}天');
+            }
+            if (isTargetStock) {
+              print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法检查第${i + 1}天');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法检查第${i + 1}天');
+            }
+            break;
           }
+          
+          final klineData = historicalData[dataIndex];
+          final currentPrice = klineData.close; // 使用历史价格
+          double? maValue;
           
           // 计算对应均线值 - 使用从第dataIndex天开始的数据
           switch (combination.consecutiveDaysConfig.maType) {
@@ -586,41 +725,79 @@ class StockFilterService {
               if (dataIndex + 1 >= 5) {
                 maValue = MaCalculationService.calculateMA5(historicalData.sublist(dataIndex - 4, dataIndex + 1));
               } else {
-                maValue = 0.0;
+                passesConsecutiveDays = false;
+                if (shouldPrintDetails) {
+                  print('    ❌ 数据不足，无法计算MA5');
+                  ConsoleCaptureService.instance.capturePrint('    ❌ 数据不足，无法计算MA5');
+                }
+                if (isTargetStock) {
+                  print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA5');
+                  ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA5');
+                }
+                break;
               }
               break;
             case 'ma10':
               if (dataIndex + 1 >= 10) {
                 maValue = MaCalculationService.calculateMA10(historicalData.sublist(dataIndex - 9, dataIndex + 1));
               } else {
-                maValue = 0.0;
+                passesConsecutiveDays = false;
+                if (shouldPrintDetails) {
+                  print('    ❌ 数据不足，无法计算MA10');
+                  ConsoleCaptureService.instance.capturePrint('    ❌ 数据不足，无法计算MA10');
+                }
+                if (isTargetStock) {
+                  print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA10');
+                  ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA10');
+                }
+                break;
               }
               break;
             case 'ma20':
               if (dataIndex + 1 >= 20) {
                 maValue = MaCalculationService.calculateMA20(historicalData.sublist(dataIndex - 19, dataIndex + 1));
               } else {
-                maValue = 0.0;
+                passesConsecutiveDays = false;
+                if (shouldPrintDetails) {
+                  print('    ❌ 数据不足，无法计算MA20');
+                  ConsoleCaptureService.instance.capturePrint('    ❌ 数据不足，无法计算MA20');
+                }
+                if (isTargetStock) {
+                  print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA20');
+                  ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 数据不足，无法计算MA20');
+                }
+                break;
               }
               break;
             default:
               if (dataIndex + 1 >= 20) {
                 maValue = MaCalculationService.calculateMA20(historicalData.sublist(dataIndex - 19, dataIndex + 1));
               } else {
-                maValue = 0.0;
+                passesConsecutiveDays = false;
+                break;
               }
           }
           
+          if (!passesConsecutiveDays || maValue == null) {
+            break; // 如果已经失败或maValue未赋值，跳出循环
+          }
+          
           final dayIndex = i + 1;
-          final dateStr = useIFinDRealTime && i == 0 ? '实时' : klineData.tradeDate; // 显示实际日期或实时
+          final dateStr = klineData.tradeDate;
           if (shouldPrintDetails) {
             print('    第${dayIndex}天(${dateStr}): 收盘价${currentPrice.toStringAsFixed(2)} vs ${maTypeName} ${maValue.toStringAsFixed(2)}');
+            ConsoleCaptureService.instance.capturePrint('    第${dayIndex}天(${dateStr}): 收盘价${currentPrice.toStringAsFixed(2)} vs ${maTypeName} ${maValue.toStringAsFixed(2)}');
           }
           
           if (currentPrice <= maValue) {
             passesConsecutiveDays = false;
             if (shouldPrintDetails) {
               print('    ❌ 第${dayIndex}天(${dateStr})收盘价${currentPrice.toStringAsFixed(2)} ≤ ${maTypeName} ${maValue.toStringAsFixed(2)}，不满足条件');
+              ConsoleCaptureService.instance.capturePrint('    ❌ 第${dayIndex}天(${dateStr})收盘价${currentPrice.toStringAsFixed(2)} ≤ ${maTypeName} ${maValue.toStringAsFixed(2)}，不满足条件');
+            }
+            if (isTargetStock) {
+              print('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 第${dayIndex}天(${dateStr})收盘价${currentPrice.toStringAsFixed(2)} ≤ ${maTypeName} ${maValue.toStringAsFixed(2)}');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中被过滤: 第${dayIndex}天(${dateStr})收盘价${currentPrice.toStringAsFixed(2)} ≤ ${maTypeName} ${maValue.toStringAsFixed(2)}');
             }
             break;
           }
@@ -629,16 +806,23 @@ class StockFilterService {
         if (passesConsecutiveDays) {
           if (shouldPrintDetails) {
             print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过连续天数筛选');
+            ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过连续天数筛选');
           }
           filteredCandidates.add(ranking);
         } else {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过连续天数筛选');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过连续天数筛选');
           }
         }
       } catch (e) {
         if (shouldPrintDetails) {
           print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+          ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 获取历史数据失败');
+        }
+        if (isTargetStock) {
+          print('❌ [赛微电子] 在条件4-连续天数筛选中异常: $e');
+          ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件4-连续天数筛选中异常: $e');
         }
         continue;
       }
@@ -659,8 +843,9 @@ class StockFilterService {
     
     for (StockRanking ranking in candidates) {
       processed++;
-      // 只打印前5个股票的详细过程
-      bool shouldPrintDetails = processed <= 5;
+      final bool isTargetStock = ranking.stockInfo.tsCode == targetStockCode;
+      // 只打印前5个股票的详细过程，或者如果是赛微电子也打印
+      bool shouldPrintDetails = processed <= 5 || isTargetStock;
       
       try {
         if (processed % 10 == 0) {
@@ -673,6 +858,11 @@ class StockFilterService {
         if (historicalData == null || historicalData.isEmpty) {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据为空，跳过');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 历史数据为空，跳过');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件5-均线连续增长天数筛选中被过滤: 历史数据为空');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件5-均线连续增长天数筛选中被过滤: 历史数据为空');
           }
           continue;
         }
@@ -689,14 +879,23 @@ class StockFilterService {
           if (historicalData.length < requiredDataLength) {
             passesMaGrowthDays = false;
             failedConditions.add('MA5数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+            if (isTargetStock) {
+              print('❌ [赛微电子] MA5数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA5数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+            }
           } else {
             // 检查MA5是否连续增长
             bool ma5Growing = _checkMaGrowthDays(historicalData, 'ma5', requiredDays, combination.selectedDate);
             if (!ma5Growing) {
               passesMaGrowthDays = false;
               failedConditions.add('MA5未连续增长${requiredDays}天');
+              if (isTargetStock) {
+                print('❌ [赛微电子] MA5未连续增长${requiredDays}天');
+                ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA5未连续增长${requiredDays}天');
+              }
             } else if (shouldPrintDetails) {
               print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA5连续增长${requiredDays}天');
+              ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA5连续增长${requiredDays}天');
             }
           }
         }
@@ -709,14 +908,23 @@ class StockFilterService {
           if (historicalData.length < requiredDataLength) {
             passesMaGrowthDays = false;
             failedConditions.add('MA10数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+            if (isTargetStock) {
+              print('❌ [赛微电子] MA10数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA10数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+            }
           } else {
             // 检查MA10是否连续增长
             bool ma10Growing = _checkMaGrowthDays(historicalData, 'ma10', requiredDays, combination.selectedDate);
             if (!ma10Growing) {
               passesMaGrowthDays = false;
               failedConditions.add('MA10未连续增长${requiredDays}天');
+              if (isTargetStock) {
+                print('❌ [赛微电子] MA10未连续增长${requiredDays}天');
+                ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA10未连续增长${requiredDays}天');
+              }
             } else if (shouldPrintDetails) {
               print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA10连续增长${requiredDays}天');
+              ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA10连续增长${requiredDays}天');
             }
           }
         }
@@ -729,14 +937,23 @@ class StockFilterService {
           if (historicalData.length < requiredDataLength) {
             passesMaGrowthDays = false;
             failedConditions.add('MA20数据不足（需要${requiredDataLength}天，实际${historicalData.length}天）');
+            if (isTargetStock) {
+              print('❌ [赛微电子] MA20数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+              ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA20数据不足: 需要${requiredDataLength}天，实际${historicalData.length}天');
+            }
           } else {
             // 检查MA20是否连续增长
             bool ma20Growing = _checkMaGrowthDays(historicalData, 'ma20', requiredDays, combination.selectedDate);
             if (!ma20Growing) {
               passesMaGrowthDays = false;
               failedConditions.add('MA20未连续增长${requiredDays}天');
+              if (isTargetStock) {
+                print('❌ [赛微电子] MA20未连续增长${requiredDays}天');
+                ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] MA20未连续增长${requiredDays}天');
+              }
             } else if (shouldPrintDetails) {
               print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA20连续增长${requiredDays}天');
+              ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): MA20连续增长${requiredDays}天');
             }
           }
         }
@@ -744,16 +961,27 @@ class StockFilterService {
         if (passesMaGrowthDays) {
           if (shouldPrintDetails) {
             print('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线连续增长天数筛选');
+            ConsoleCaptureService.instance.capturePrint('  ✅ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 通过均线连续增长天数筛选');
           }
           filteredCandidates.add(ranking);
         } else {
           if (shouldPrintDetails) {
             print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线连续增长天数筛选 - ${failedConditions.join(', ')}');
+            ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 未通过均线连续增长天数筛选 - ${failedConditions.join(', ')}');
+          }
+          if (isTargetStock) {
+            print('❌ [赛微电子] 在条件5-均线连续增长天数筛选中被过滤: ${failedConditions.join(', ')}');
+            ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件5-均线连续增长天数筛选中被过滤: ${failedConditions.join(', ')}');
           }
         }
       } catch (e) {
         if (shouldPrintDetails) {
           print('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 检查均线连续增长天数失败: $e');
+          ConsoleCaptureService.instance.capturePrint('  ❌ ${ranking.stockInfo.name} (${ranking.stockInfo.tsCode}): 检查均线连续增长天数失败: $e');
+        }
+        if (isTargetStock) {
+          print('❌ [赛微电子] 在条件5-均线连续增长天数筛选中异常: $e');
+          ConsoleCaptureService.instance.capturePrint('❌ [赛微电子] 在条件5-均线连续增长天数筛选中异常: $e');
         }
         continue;
       }

@@ -113,6 +113,33 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
         backgroundColor: Colors.blue[600],
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            )
+          else
+            TextButton.icon(
+              onPressed: _saveCombination,
+              icon: const Icon(Icons.save, color: Colors.white),
+              label: Text(
+                widget.editingCombination != null ? '更新' : '保存',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
       ),
       body: Form(
         key: _formKey,
@@ -126,8 +153,6 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
               _buildRequiredConditionsSection(),
               const SizedBox(height: 24),
               _buildOptionalConditionsSection(),
-              const SizedBox(height: 32),
-              _buildSaveButton(),
             ],
           ),
         ),
@@ -1256,35 +1281,6 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
     );
   }
 
-  Widget _buildSaveButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _saveCombination,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue[600],
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        child: _isLoading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : Text(
-                widget.editingCombination != null ? '更新条件组合' : '保存条件组合',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-      ),
-    );
-  }
 
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(

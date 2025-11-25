@@ -10,6 +10,12 @@ class KlineData {
   final double pctChg;
   final double vol;
   final double amount; // 成交额（千元）
+  
+  // 前复权价格（用于BOLL图表叠加）
+  final double? openQfq;
+  final double? highQfq;
+  final double? lowQfq;
+  final double? closeQfq;
 
   KlineData({
     required this.tsCode,
@@ -23,6 +29,10 @@ class KlineData {
     required this.pctChg,
     required this.vol,
     required this.amount,
+    this.openQfq,
+    this.highQfq,
+    this.lowQfq,
+    this.closeQfq,
   });
 
   factory KlineData.fromJson(Map<String, dynamic> json) {
@@ -38,6 +48,10 @@ class KlineData {
       pctChg: double.tryParse(json['pct_chg']?.toString() ?? '0') ?? 0.0,
       vol: double.tryParse(json['vol']?.toString() ?? '0') ?? 0.0,
       amount: double.tryParse(json['amount']?.toString() ?? '0') ?? 0.0,
+      openQfq: json['open_qfq'] != null ? double.tryParse(json['open_qfq']?.toString() ?? '0') : null,
+      highQfq: json['high_qfq'] != null ? double.tryParse(json['high_qfq']?.toString() ?? '0') : null,
+      lowQfq: json['low_qfq'] != null ? double.tryParse(json['low_qfq']?.toString() ?? '0') : null,
+      closeQfq: json['close_qfq'] != null ? double.tryParse(json['close_qfq']?.toString() ?? '0') : null,
     );
   }
 
