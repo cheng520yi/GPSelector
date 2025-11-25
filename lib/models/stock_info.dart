@@ -7,6 +7,7 @@ class StockInfo {
   final String market;
   final String listDate;
   final double? totalMarketValue; // 总市值（亿元）
+  final double? circMarketValue; // 流通市值（亿元）
 
   StockInfo({
     required this.tsCode,
@@ -17,6 +18,7 @@ class StockInfo {
     this.market = '',
     this.listDate = '',
     this.totalMarketValue,
+    this.circMarketValue,
   });
 
   // 从新的JSON格式创建（键值对：股票代码：股票名称）
@@ -36,6 +38,7 @@ class StockInfo {
       market: _getMarketFromCode(tsCode),
       listDate: '',
       totalMarketValue: null,
+      circMarketValue: null,
     );
   }
 
@@ -50,6 +53,7 @@ class StockInfo {
       market: json['market'] ?? '',
       listDate: json['list_date'] ?? '',
       totalMarketValue: json['total_market_value']?.toDouble(),
+      circMarketValue: json['circ_market_value']?.toDouble(),
     );
   }
 
@@ -87,6 +91,7 @@ class StockInfo {
       'market': market,
       'list_date': listDate,
       'total_market_value': totalMarketValue,
+      'circ_market_value': circMarketValue,
     };
   }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
@@ -35,6 +37,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   KlineData? _selectedKlineData; // 选中的K线数据
   Map<String, double?>? _selectedMaValues; // 选中日期的均线值
   bool _isFavorite = false; // 是否已关注
+  double? _totalMarketValue; // 总市值（亿元）
+  double? _circMarketValue; // 流通市值（亿元）
 
   @override
   void initState() {
@@ -61,10 +65,11 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     });
   }
 
-  // 初始化数据：先加载设置，再加载K线数据
+  // 初始化数据：先加载设置，再加载K线数据和市值数据
   Future<void> _initializeData() async {
     await _loadSettings();
     _loadKlineData();
+    _loadMarketValueData();
   }
 
   // 加载保存的设置
@@ -113,16 +118,18 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       // 日K：正常计算
       // 周K：需要更多自然日（一周约5个交易日，60个交易日约需要84个自然日）
       // 月K：需要更多自然日（一月约22个交易日，60个交易日约需要90个自然日）
+      const int minCachedDisplayDays = 180;
+      final int targetDisplayDays = _selectedDays < minCachedDisplayDays ? minCachedDisplayDays : _selectedDays;
       int requestDays;
       if (_selectedChartType == 'weekly') {
         // 周K：每个数据点代表一周，60个数据点需要约420个自然日（60周）
-        requestDays = (_selectedDays * 7).round() + 30;
+        requestDays = (targetDisplayDays * 7).round() + 30;
       } else if (_selectedChartType == 'monthly') {
         // 月K：每个数据点代表一月，60个数据点需要约1800个自然日（60个月，约5年）
-        requestDays = (_selectedDays * 30).round() + 60;
+        requestDays = (targetDisplayDays * 30).round() + 60;
       } else {
         // 日K：正常计算
-        requestDays = (_selectedDays * 1.5).round() + 20;
+        requestDays = (targetDisplayDays * 1.5).round() + 20;
       }
       
       // 并行加载K线数据和因子数据（MACD和BOLL）
@@ -279,6 +286,131 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         _errorMessage = '加载K线数据失败: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  // 获取股票的市值数据（总市值和流通市值）- 根据指定日期
+  Future<void> _loadMarketValueDataForDate(String tradeDate) async {
+    try {
+      // 使用 daily_basic 接口获取指定日期的市值数据
+      final Map<String, dynamic> requestData = {
+        "api_name": "daily_basic",
+        "token": "ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce",
+        "params": {
+          "ts_code": widget.stockInfo.tsCode,
+          "trade_date": tradeDate,
+        },
+        "fields": "ts_code,trade_date,total_mv,circ_mv",
+      };
+      
+      final response = await http.post(
+        Uri.parse('http://api.tushare.pro'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestData),
+      );
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        if (responseData['code'] == 0) {
+          final data = responseData['data'];
+          if (data != null) {
+            final List<dynamic> items = data['items'] ?? [];
+            final List<dynamic> fieldsData = data['fields'] ?? [];
+            final List<String> fields = fieldsData.cast<String>();
+            
+            if (items.isNotEmpty) {
+              final int totalMvIndex = fields.indexOf('total_mv');
+              final int circMvIndex = fields.indexOf('circ_mv');
+              
+              if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
+                final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
+                // TuShare 返回单位为万元，转换为亿元
+                setState(() {
+                  _totalMarketValue = totalMv / 10000.0;
+                });
+              }
+              
+              if (circMvIndex >= 0 && circMvIndex < items[0].length) {
+                final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
+                // TuShare 返回单位为万元，转换为亿元
+                setState(() {
+                  _circMarketValue = circMv / 10000.0;
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ 获取市值数据失败: $e');
+    }
+  }
+
+  // 获取股票的市值数据（总市值和流通市值）- 获取最新数据
+  Future<void> _loadMarketValueData() async {
+    try {
+      // 先尝试使用股票信息中已有的总市值
+      if (widget.stockInfo.totalMarketValue != null) {
+        setState(() {
+          _totalMarketValue = widget.stockInfo.totalMarketValue;
+        });
+      }
+      
+      // 尝试获取最新的市值数据
+      final today = DateTime.now();
+      final tradeDateStr = DateFormat('yyyyMMdd').format(today);
+      
+      // 使用 daily_basic 接口获取市值数据
+      final Map<String, dynamic> requestData = {
+        "api_name": "daily_basic",
+        "token": "ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce",
+        "params": {
+          "ts_code": widget.stockInfo.tsCode,
+          "trade_date": tradeDateStr,
+        },
+        "fields": "ts_code,trade_date,total_mv,circ_mv",
+      };
+      
+      final response = await http.post(
+        Uri.parse('http://api.tushare.pro'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestData),
+      );
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        if (responseData['code'] == 0) {
+          final data = responseData['data'];
+          if (data != null) {
+            final List<dynamic> items = data['items'] ?? [];
+            final List<dynamic> fieldsData = data['fields'] ?? [];
+            final List<String> fields = fieldsData.cast<String>();
+            
+            if (items.isNotEmpty) {
+              final int totalMvIndex = fields.indexOf('total_mv');
+              final int circMvIndex = fields.indexOf('circ_mv');
+              
+              if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
+                final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
+                // TuShare 返回单位为万元，转换为亿元
+                setState(() {
+                  _totalMarketValue = totalMv / 10000.0;
+                });
+              }
+              
+              if (circMvIndex >= 0 && circMvIndex < items[0].length) {
+                final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
+                // TuShare 返回单位为万元，转换为亿元
+                setState(() {
+                  _circMarketValue = circMv / 10000.0;
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ 获取市值数据失败: $e');
     }
   }
 
@@ -855,7 +987,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   }
 
   Widget _buildStockInfoCard() {
-    // 优先使用选中的数据，否则使用最新交易日的数据（忽略筛选列表传入的currentKlineData，因为它可能不是最新交易日）
+    // 优先使用选中的数据（包括平移后通过onDataSelected回调更新的数据）
+    // 如果没有选中数据，使用_klineDataList.last作为后备（这种情况应该不会发生，因为onDataSelected会更新_selectedKlineData）
     final currentData = _selectedKlineData ?? 
         (_klineDataList.isNotEmpty ? _klineDataList.last : null);
     final pctChg = currentData != null 
@@ -948,7 +1081,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
             ],
           ),
           if (currentData != null) ...[
-            const SizedBox(height: 8), // 减小间距
+            const SizedBox(height: 6), // 减小间距
             Row(
               children: [
                 Expanded(
@@ -965,15 +1098,25 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 6), // 减小间距
+            const SizedBox(height: 4), // 减小间距
             Row(
               children: [
                 Expanded(
                   child: _buildInfoItem('成交量', '${(currentData.vol / 10000).toStringAsFixed(0)}万手'),
                 ),
                 Expanded(
-                  child: _buildInfoItem('成交额', '${currentData.amountInYi.toStringAsFixed(2)}亿元'),
+                  child: _buildInfoItem('成交额', '${currentData.amountInYi.toStringAsFixed(2)}亿元', valueColor: Colors.blue[700]),
                 ),
+                if (_totalMarketValue != null)
+                  Expanded(
+                    child: _buildInfoItem('总市值', '${_totalMarketValue!.toStringAsFixed(2)}亿元', valueColor: Colors.orange[700]),
+                  ),
+                if (_circMarketValue != null)
+                  Expanded(
+                    child: _buildInfoItem('流通市值', '${_circMarketValue!.toStringAsFixed(2)}亿元'),
+                  )
+                else
+                  const Expanded(child: SizedBox()), // 占位，保持布局平衡
               ],
             ),
           ],
@@ -982,7 +1125,7 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     );
   }
 
-  Widget _buildInfoItem(String label, String value) {
+  Widget _buildInfoItem(String label, String value, {Color? valueColor}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -996,9 +1139,10 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         const SizedBox(height: 2), // 减小间距
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12, // 减小字体
             fontWeight: FontWeight.w600,
+            color: valueColor, // 如果指定了颜色，使用指定颜色
           ),
         ),
       ],
@@ -1297,6 +1441,9 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
                     _updateSelectedDataWithPrevPeriod(data);
                   }
                 });
+                
+                // 根据当前显示的日期更新市值数据
+                _loadMarketValueDataForDate(data.tradeDate);
               },
             ),
           ),

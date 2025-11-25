@@ -32,20 +32,42 @@ class KlineChartWidget extends StatefulWidget {
 class _KlineChartWidgetState extends State<KlineChartWidget> {
   int? _selectedIndex; // 选中的K线数据索引（在可见数据中的索引）
   Timer? _autoResetTimer; // 自动恢复定时器
+  int _panOffset = 0; // 平移偏移量（相对于最新数据的偏移，负数表示向左平移）
+  Timer? _panHoldTimer; // 长按平移定时器
+  bool _hasInitialized = false; // 是否已初始化显示
   
   @override
   void didUpdateWidget(KlineChartWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 如果klineDataList发生变化，清除选中状态
+    bool shouldUpdate = false;
+    
+    // 如果klineDataList发生变化，清除选中状态并重置平移
     if (oldWidget.klineDataList != widget.klineDataList) {
       _selectedIndex = null;
       _autoResetTimer?.cancel();
+      _panOffset = 0; // 重置平移偏移
+      shouldUpdate = true;
+    }
+    // 如果显示天数变化，重置平移偏移
+    if (oldWidget.displayDays != widget.displayDays) {
+      _panOffset = 0;
+      shouldUpdate = true;
+    }
+    
+    // 如果数据或显示天数变化，更新顶部信息为当前可见窗口最右侧的数据
+    if (shouldUpdate) {
+      _hasInitialized = false; // 重置初始化标志
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _updateToRightmostData();
+        _hasInitialized = true;
+      });
     }
   }
 
   @override
   void dispose() {
     _autoResetTimer?.cancel();
+    _panHoldTimer?.cancel();
     super.dispose();
   }
 
@@ -54,19 +76,16 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
     if (widget.klineDataList.isEmpty) return null;
 
     // 计算可见数据范围（与paint方法中的逻辑保持一致）
-    final int startIndex;
-    if (widget.displayDays != null) {
-      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
-      startIndex = math.max(19, calculatedStartIndex);
-    } else {
-      if (widget.klineDataList.length > 19) {
-        startIndex = 19;
-      } else {
-        startIndex = 0;
-      }
-    }
+    final int startIndex = _calculateStartIndex();
 
-    final visibleData = widget.klineDataList.sublist(startIndex);
+    final int? displayDays = widget.displayDays;
+    final int endIndex;
+    if (displayDays != null) {
+      endIndex = math.min(startIndex + displayDays, widget.klineDataList.length);
+    } else {
+      endIndex = widget.klineDataList.length;
+      }
+    final visibleData = widget.klineDataList.sublist(startIndex, endIndex);
     if (visibleData.isEmpty) return null;
 
     // 计算K线宽度和间距（与_drawCandles保持一致）
@@ -101,18 +120,7 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
   // 计算选中日期的均线值
   Map<String, double?> _calculateMovingAveragesForIndex(int index) {
     // 计算在完整数据列表中的索引
-    final int startIndex;
-    if (widget.displayDays != null) {
-      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
-      startIndex = math.max(19, calculatedStartIndex);
-    } else {
-      if (widget.klineDataList.length > 19) {
-        startIndex = 19;
-      } else {
-        startIndex = 0;
-      }
-    }
-
+    final int startIndex = _calculateStartIndex();
     final absoluteIndex = startIndex + index;
     if (absoluteIndex < 0 || absoluteIndex >= widget.klineDataList.length) {
       return {'ma5': null, 'ma10': null, 'ma20': null, 'prevMa5': null, 'prevMa10': null, 'prevMa20': null};
@@ -201,39 +209,259 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
             setState(() {
               _selectedIndex = null;
             });
-            // 恢复显示最新日期的数据
-            if (widget.klineDataList.isNotEmpty && widget.onDataSelected != null) {
-              final latestData = widget.klineDataList.last;
-              final latestMaValues = _calculateLatestMovingAverages();
-              widget.onDataSelected!(latestData, latestMaValues);
-            }
+            // 恢复显示当前可见窗口最右侧日期的数据
+            _updateToRightmostData();
           }
         });
       }
     }
   }
 
-  // 计算最新交易日的均线值（用于恢复）
-  Map<String, double?> _calculateLatestMovingAverages() {
+  // 获取当前可见窗口最右侧的数据
+  KlineData? _getRightmostVisibleData() {
+    if (widget.klineDataList.isEmpty) return null;
+    
+    final int startIndex = _calculateStartIndex();
+    final int? displayDays = widget.displayDays;
+    
+    int endIndex;
+    if (displayDays != null) {
+      endIndex = math.min(startIndex + displayDays, widget.klineDataList.length);
+    } else {
+      endIndex = widget.klineDataList.length;
+    }
+    
+    // 最右侧数据的索引（endIndex - 1，因为endIndex是exclusive的）
+    final int rightmostIndex = endIndex - 1;
+    if (rightmostIndex >= 0 && rightmostIndex < widget.klineDataList.length) {
+      return widget.klineDataList[rightmostIndex];
+    }
+    return null;
+  }
+
+  // 计算当前可见窗口最右侧数据的均线值
+  Map<String, double?> _calculateRightmostMovingAverages() {
     if (widget.klineDataList.length < 5) {
       return {'ma5': null, 'ma10': null, 'ma20': null, 'prevMa5': null, 'prevMa10': null, 'prevMa20': null};
     }
 
-    // 计算在可见数据中的最后一个索引
-    final int startIndex;
-    if (widget.displayDays != null) {
-      final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
-      startIndex = math.max(19, calculatedStartIndex);
+    final int startIndex = _calculateStartIndex();
+    final int? displayDays = widget.displayDays;
+    
+    int endIndex;
+    if (displayDays != null) {
+      endIndex = math.min(startIndex + displayDays, widget.klineDataList.length);
     } else {
-      if (widget.klineDataList.length > 19) {
-        startIndex = 19;
+      endIndex = widget.klineDataList.length;
+    }
+    
+    // 最右侧数据在完整数据列表中的索引
+    final int rightmostIndex = endIndex - 1;
+    if (rightmostIndex < 0 || rightmostIndex >= widget.klineDataList.length) {
+      return {'ma5': null, 'ma10': null, 'ma20': null, 'prevMa5': null, 'prevMa10': null, 'prevMa20': null};
+    }
+    
+    // 计算在可见数据中的相对索引（用于计算均线）
+    final int relativeIndex = rightmostIndex - startIndex;
+    return _calculateMovingAveragesForIndex(relativeIndex);
+  }
+
+  // 更新顶部信息为当前可见窗口最右侧的数据
+  void _updateToRightmostData() {
+    if (widget.onDataSelected == null) return;
+    
+    final rightmostData = _getRightmostVisibleData();
+    if (rightmostData != null) {
+      final maValues = _calculateRightmostMovingAverages();
+      widget.onDataSelected!(rightmostData, maValues);
+    }
+  }
+
+  // 计算最新交易日的均线值（用于恢复，保持向后兼容）
+  Map<String, double?> _calculateLatestMovingAverages() {
+    return _calculateRightmostMovingAverages();
+  }
+
+  // 计算K线图高度比例（与Painter中的方法一致）
+  static double _getKlineChartHeightRatio(int subChartCount) {
+    switch (subChartCount) {
+      case 1:
+        return 0.7;
+      case 2:
+        return 0.55;
+      case 3:
+        return 0.45;
+      case 4:
+        return 0.4;
+      default:
+        return 0.7;
+    }
+  }
+
+  // 计算当前显示的起始索引（考虑平移偏移）
+  // 前提：klineDataList 包含180日的数据（无论用户选择什么显示天数）
+  int _calculateStartIndex() {
+    if (widget.klineDataList.isEmpty) return 0;
+    
+    // 最大显示180个单位（无论日K、周K、月K，都以180个数据点作为最大范围）
+    const maxDisplayUnits = 180;
+    final totalDataLength = widget.klineDataList.length;
+    
+    if (widget.displayDays == null) {
+      // 没有指定显示天数，从索引19开始显示
+      if (totalDataLength > 19) {
+        return 19;
       } else {
-        startIndex = 0;
+        return 0;
       }
     }
+    
+    final displayDays = widget.displayDays!;
+    
+    // 如果显示天数>=180，不能平移，显示最后180个单位
+    if (displayDays >= maxDisplayUnits) {
+      final calculatedStartIndex = totalDataLength - maxDisplayUnits;
+      return math.max(19, calculatedStartIndex);
+    }
+    
+    // 显示天数<180，可以平移（在已获取的最多180日数据范围内）
+    // 当_panOffset=0时，默认显示最后N个数据（从 totalDataLength - displayDays 开始）
+    final baseStartIndex = totalDataLength - displayDays;
+    
+    // 应用平移偏移：正数=向左（显示更早的数据），负数=向右（更接近最新数据）
+    final adjustedStartIndex = baseStartIndex - _panOffset;
+    
+    // 限制范围：
+    // 最右侧：totalDataLength - displayDays（最新窗口的起点）
+    final maxStartIndex = totalDataLength - displayDays;
+    // 最左侧：若有>=180条数据，则是 totalDataLength - 180；否则可回退到索引0
+    final minAllowedStartIndex = math.max(0, totalDataLength - maxDisplayUnits);
+    
+    return math.max(minAllowedStartIndex, math.min(maxStartIndex, adjustedStartIndex));
+      }
 
-    final lastVisibleIndex = widget.klineDataList.length - 1 - startIndex;
-    return _calculateMovingAveragesForIndex(lastVisibleIndex);
+  // 检查是否可以向左平移
+  // 前提：klineDataList 最多包含180日的数据，窗口在该范围内滑动
+  bool _canPanLeft() {
+    // 如果显示天数>=180，不能平移
+    if (widget.displayDays == null || widget.displayDays! >= 180) {
+      return false;
+    }
+    if (widget.klineDataList.isEmpty) return false;
+    
+    final totalDataLength = widget.klineDataList.length;
+    final displayDays = widget.displayDays!;
+    
+    // 最左侧限制：180日数据数组的最左侧（不足180条时为0）
+    final minAllowedStartIndex = math.max(0, totalDataLength - 180);
+    
+    // 计算当前起始索引（与 _calculateStartIndex 保持一致）
+    final baseStartIndex = totalDataLength - displayDays;
+    final maxStartIndex = totalDataLength - displayDays;
+    final adjustedStartIndex = baseStartIndex - _panOffset;
+    final startIndex = math.max(minAllowedStartIndex, math.min(maxStartIndex, adjustedStartIndex));
+    
+    // 可以向左平移的条件：当前startIndex大于最左侧限制
+    // 即：还可以继续向左移动，显示更早的数据（向180日数据数组的最左侧移动）
+    final canPan = startIndex > minAllowedStartIndex;
+    
+    print('_canPanLeft检查: displayDays=$displayDays, totalDataLength=$totalDataLength');
+    print('  baseStartIndex=$baseStartIndex, adjustedStartIndex=$adjustedStartIndex');
+    print('  startIndex=$startIndex, minAllowedStartIndex=$minAllowedStartIndex, canPan=$canPan, _panOffset=$_panOffset');
+    return canPan;
+  }
+
+  // 检查是否可以向右平移
+  bool _canPanRight() {
+    // 如果显示天数>=180，不能平移
+    if (widget.displayDays == null || widget.displayDays! >= 180) {
+      return false;
+    }
+    if (widget.klineDataList.isEmpty) return false;
+    
+    final totalDataLength = widget.klineDataList.length;
+    final displayDays = widget.displayDays!;
+    
+    // 计算当前起始索引
+    final startIndex = _calculateStartIndex();
+    
+    // 最右侧限制：显示最后N个数据时的起始索引（即最新交易日数据）
+    // 即：从最新数据往前数displayDays个单位的起始位置（totalDataLength - displayDays）
+    final maxStartIndex = totalDataLength - displayDays;
+    
+    // 可以向右平移的条件：当前startIndex小于最右侧限制
+    // 即：还可以继续向右移动，显示更新的数据（向最新数据移动）
+    final canPan = startIndex < maxStartIndex;
+    
+    print('_canPanRight检查: displayDays=$displayDays, totalDataLength=$totalDataLength, startIndex=$startIndex, maxStartIndex=$maxStartIndex, canPan=$canPan, _panOffset=$_panOffset');
+    return canPan;
+  }
+
+  // 向左平移（显示更早的数据，向前移动一个K线单位）
+  void _panLeft() {
+    if (!_canPanLeft()) return;
+    setState(() {
+      _selectedIndex = null; // 清除选中状态
+      _panOffset += 1; // 向左平移，偏移量增大（更正），startIndex减小，显示更早的数据
+    });
+    // 更新顶部信息为当前可见窗口最右侧的数据
+    _updateToRightmostData();
+  }
+
+  // 向右平移（显示更新的数据，向后移动一个K线单位）
+  void _panRight() {
+    if (!_canPanRight()) return;
+    setState(() {
+      _selectedIndex = null; // 清除选中状态
+      _panOffset -= 1; // 向右平移，偏移量减小（更负），startIndex增大，显示更新的数据
+    });
+    // 更新顶部信息为当前可见窗口最右侧的数据
+    _updateToRightmostData();
+  }
+
+  bool _panStep(bool toLeft) {
+    if (toLeft) {
+      if (_canPanLeft()) {
+        _panLeft();
+        return true;
+      }
+    } else {
+      if (_canPanRight()) {
+        _panRight();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _startContinuousPan(bool toLeft) {
+    _panHoldTimer?.cancel();
+
+    int step = 0;
+
+    Duration _intervalForStep(int step) {
+      if (step > 30) return const Duration(milliseconds: 40);
+      if (step > 15) return const Duration(milliseconds: 70);
+      if (step > 5) return const Duration(milliseconds: 100);
+      return const Duration(milliseconds: 150);
+    }
+
+    void scheduleNext() {
+      final moved = _panStep(toLeft);
+      if (!moved) {
+        _stopContinuousPan();
+        return;
+      }
+      step++;
+      _panHoldTimer = Timer(_intervalForStep(step), scheduleNext);
+    }
+
+    scheduleNext();
+  }
+
+  void _stopContinuousPan() {
+    _panHoldTimer?.cancel();
+    _panHoldTimer = null;
   }
 
   @override
@@ -242,9 +470,55 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
       return const Center(child: Text('暂无数据'));
     }
 
-    return GestureDetector(
-      onTapDown: _handleTapDown,
+    // 首次构建或数据变化时，如果没有选中数据，显示当前可见窗口最右侧的数据
+    if (!_hasInitialized && _selectedIndex == null && widget.onDataSelected != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _selectedIndex == null) {
+          _updateToRightmostData();
+          _hasInitialized = true;
+        }
+      });
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 计算主图高度（与paint方法中的逻辑一致）
+        const labelAreaHeight = 25.0;
+        int labelAreaCount = 0;
+        if (widget.subChartCount >= 2 && widget.macdDataList.isNotEmpty) labelAreaCount++;
+        if (widget.subChartCount >= 3 && widget.bollDataList.isNotEmpty) labelAreaCount++;
+        
+        final klineRatio = _getKlineChartHeightRatio(widget.subChartCount);
+        const chartGap = 4.0;
+        const topPadding = 0.0;
+        const bottomPadding = 18.0;
+        final baseAvailableHeight = constraints.maxHeight - topPadding - bottomPadding - chartGap * widget.subChartCount;
+        final availableHeight = baseAvailableHeight - labelAreaCount * labelAreaHeight;
+        final klineChartHeight = availableHeight * klineRatio;
+        final buttonTop = topPadding + klineChartHeight - 20; // 主图底部上方20像素
+        
+        return Stack(
+          children: [
+            // K线图表（带手势检测）
+            GestureDetector(
+              onTapDown: (TapDownDetails details) {
+                // 检查点击位置是否在按钮区域
+                final buttonAreaTop = buttonTop;
+                final buttonAreaBottom = buttonTop + 40;
+                if (details.localPosition.dy >= buttonAreaTop && details.localPosition.dy <= buttonAreaBottom) {
+                  // 点击在按钮区域，不处理K线选中
+                  return;
+                }
+                _handleTapDown(details);
+              },
       onPanUpdate: (DragUpdateDetails details) {
+                // 检查拖动位置是否在按钮区域
+                final buttonAreaTop = buttonTop;
+                final buttonAreaBottom = buttonTop + 40;
+                if (details.localPosition.dy >= buttonAreaTop && details.localPosition.dy <= buttonAreaBottom) {
+                  // 拖动在按钮区域，不处理K线选中
+                  return;
+                }
         // 拖动时也更新选中
         final renderBox = context.findRenderObject() as RenderBox?;
         if (renderBox == null) return;
@@ -252,18 +526,7 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
         final index = _findDataIndexAtPosition(details.localPosition.dx, size);
         if (index != null) {
           // 计算在完整数据列表中的索引
-          final int startIndex;
-          if (widget.displayDays != null) {
-            final calculatedStartIndex = widget.klineDataList.length - widget.displayDays!;
-            startIndex = math.max(19, calculatedStartIndex);
-          } else {
-            if (widget.klineDataList.length > 19) {
-              startIndex = 19;
-            } else {
-              startIndex = 0;
-            }
-          }
-
+                  final int startIndex = _calculateStartIndex();
           final absoluteIndex = startIndex + index;
           if (absoluteIndex >= 0 && absoluteIndex < widget.klineDataList.length) {
             setState(() {
@@ -286,12 +549,8 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
                 setState(() {
                   _selectedIndex = null;
                 });
-                // 恢复显示最新日期的数据
-                if (widget.klineDataList.isNotEmpty && widget.onDataSelected != null) {
-                  final latestData = widget.klineDataList.last;
-                  final latestMaValues = _calculateLatestMovingAverages();
-                  widget.onDataSelected!(latestData, latestMaValues);
-                }
+                        // 恢复显示当前可见窗口最右侧日期的数据
+                        _updateToRightmostData();
               }
             });
           }
@@ -306,8 +565,104 @@ class _KlineChartWidgetState extends State<KlineChartWidget> {
           subChartCount: widget.subChartCount,
           chartType: widget.chartType,
           selectedIndex: _selectedIndex, // 传递选中索引
+                  panOffset: _panOffset, // 传递平移偏移
         ),
       size: Size.infinite,
+              ),
+            ),
+            // 在主图中间下方位置添加平移按钮（使用Listener确保按钮区域优先接收点击事件）
+            Positioned(
+              left: 0,
+              right: 0,
+              top: buttonTop,
+              child: Listener(
+                onPointerDown: (_) {
+                  // 拦截按钮区域的指针事件，防止被K线手势检测处理
+                },
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  color: Colors.transparent, // 透明背景，确保可以点击
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // 左平移按钮
+                      _PanControlButton(
+                        enabled: _canPanLeft(),
+                        icon: Icons.arrow_back_ios,
+                        activeColor: Colors.red[700]!,
+                        inactiveColor: Colors.grey[300]!,
+                        onTap: () {
+                          print('左平移按钮被点击，当前_panOffset: $_panOffset');
+                          _panLeft();
+                        },
+                        onLongPressStart: () => _startContinuousPan(true),
+                        onLongPressEnd: _stopContinuousPan,
+                      ),
+                      const SizedBox(width: 32),
+                      // 右平移按钮
+                      _PanControlButton(
+                        enabled: _canPanRight(),
+                        icon: Icons.arrow_forward_ios,
+                        activeColor: Colors.red[700]!,
+                        inactiveColor: Colors.grey[300]!,
+                        onTap: () {
+                          print('右平移按钮被点击，当前_panOffset: $_panOffset');
+                          _panRight();
+                        },
+                        onLongPressStart: () => _startContinuousPan(false),
+                        onLongPressEnd: _stopContinuousPan,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PanControlButton extends StatelessWidget {
+  final bool enabled;
+  final IconData icon;
+  final Color activeColor;
+  final Color inactiveColor;
+  final VoidCallback onTap;
+  final VoidCallback onLongPressStart;
+  final VoidCallback onLongPressEnd;
+
+  const _PanControlButton({
+    required this.enabled,
+    required this.icon,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onTap,
+    required this.onLongPressStart,
+    required this.onLongPressEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color iconColor = enabled ? activeColor : inactiveColor;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled ? onTap : null,
+      onLongPressStart: enabled ? (_) => onLongPressStart() : null,
+      onLongPressEnd: (_) => onLongPressEnd(),
+      onLongPressCancel: onLongPressEnd,
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        child: Icon(
+          icon,
+          color: iconColor,
+          size: 20,
+        ),
       ),
     );
   }
@@ -336,6 +691,7 @@ class KlineChartPainter extends CustomPainter {
   final int subChartCount; // 副图数量
   final String chartType; // 图表类型：daily(日K), weekly(周K), monthly(月K)
   final int? selectedIndex; // 选中的K线数据索引（在可见数据中的索引）
+  final int panOffset; // 平移偏移量（相对于最新数据的偏移，负数表示向左平移）
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度）
   static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度）
   static const double topPadding = 0.0; // 顶部padding（设为0，完全占满）
@@ -369,7 +725,49 @@ class KlineChartPainter extends CustomPainter {
     this.subChartCount = 1,
     this.chartType = 'daily',
     this.selectedIndex,
+    this.panOffset = 0,
   });
+
+  // 计算当前显示的起始索引（考虑平移偏移）
+  int _calculateStartIndex() {
+    if (klineDataList.isEmpty) return 0;
+    
+    // 最大显示180个单位
+    const maxDisplayUnits = 180;
+    final totalDataLength = klineDataList.length;
+    
+    if (displayDays == null) {
+      // 没有指定显示天数，从索引19开始显示
+      if (totalDataLength > 19) {
+        return 19;
+      } else {
+        return 0;
+      }
+    }
+    
+    final displayDaysValue = displayDays!;
+    
+    // 如果显示天数>=180，不能平移，显示最后180个单位
+    if (displayDaysValue >= maxDisplayUnits) {
+      final calculatedStartIndex = totalDataLength - maxDisplayUnits;
+      return math.max(19, calculatedStartIndex);
+    }
+    
+    // 显示天数<180，可以在已经获取的（至多180个）数据范围内平移
+    // 当panOffset=0时，显示最后N个数据（从 totalDataLength - displayDaysValue 开始）
+    final baseStartIndex = totalDataLength - displayDaysValue;
+    
+    // 应用平移偏移：正值=向左（显示更早的数据），负值=向右（更接近最新数据）
+    final adjustedStartIndex = baseStartIndex - panOffset;
+    
+    // 限制范围：
+    // 最右侧：totalDataLength - displayDaysValue（窗口包含最新数据）
+    final maxStartIndex = totalDataLength - displayDaysValue;
+    // 最左侧：如果有180条数据，则是 totalDataLength - 180；若不足180，则回到索引0
+    final minAllowedStartIndex = math.max(0, totalDataLength - maxDisplayUnits);
+    
+    return math.max(minAllowedStartIndex, math.min(maxStartIndex, adjustedStartIndex));
+  }
 
   // 计算每个数据点的均线值
   List<_MaPoint> _calculateMaPoints(List<KlineData> data) {
@@ -438,31 +836,15 @@ class KlineChartPainter extends CustomPainter {
     // 计算均线点（基于所有数据，确保均线计算准确）
     final allMaPoints = _calculateMaPoints(klineDataList);
     
-    // 确定要显示的数据范围
-    // 关键：确保所有均线（MA5、MA10、MA20）从显示区域的第一个点开始有值
-    // MA5从索引4开始有值，MA10从索引9开始有值，MA20从索引19开始有值
-    // 所以startIndex必须 >= 19，这样所有均线才能从显示区域的第一个点开始有值
+    // 确定要显示的数据范围（考虑平移偏移）
+    final int startIndex = _calculateStartIndex();
     
-    final int startIndex;
-    if (displayDays != null) {
-      // 用户想显示最后N天的数据
-      // 计算：如果要显示最后N个点，startIndex应该是 length - N
-      // 但为了确保ma20从第一个点开始有值，startIndex必须 >= 19
-      // 所以：startIndex = max(19, length - N)
-      final calculatedStartIndex = klineDataList.length - displayDays!;
-      startIndex = math.max(19, calculatedStartIndex);
-    } else {
-      // 没有指定displayDays，显示所有数据
-      // 从索引19开始显示（确保均线从第一个点开始有值）
-      if (klineDataList.length > 19) {
-        startIndex = 19;
-      } else {
-        startIndex = 0;
-      }
-    }
-    
-    final visibleData = klineDataList.sublist(startIndex);
-    final visibleMaPoints = allMaPoints.sublist(startIndex);
+    final int? displayCount = displayDays;
+    final int endIndex = displayCount != null
+        ? math.min(startIndex + displayCount, klineDataList.length)
+        : klineDataList.length;
+    final visibleData = klineDataList.sublist(startIndex, endIndex);
+    final visibleMaPoints = allMaPoints.sublist(startIndex, endIndex);
     
     // 计算价格范围（基于显示的数据和对应的均线）
     double maxPrice = visibleData.map((e) => math.max(e.high, e.close)).reduce(math.max);
@@ -1783,7 +2165,7 @@ class KlineChartPainter extends CustomPainter {
     // }
 
     // 绘制MACD指标名称和数值（在图表右上角，参考BOLL标签的样式）
-    // 如果有选中，显示选中日期的数据；否则显示最新的数据
+    // 如果有选中，显示选中日期的数据；否则显示当前可见窗口最右侧的数据
     MacdData? displayData;
     if (selectedIndex != null && selectedIndex >= 0 && selectedIndex < visibleData.length) {
       // 显示选中日期的MACD数据
@@ -1793,8 +2175,16 @@ class KlineChartPainter extends CustomPainter {
         orElse: () => macdDataList.last, // 如果找不到，使用最新的
       );
     } else {
-      // 显示最新的MACD数据
-      displayData = macdDataList.last;
+      // 显示当前可见窗口最右侧的MACD数据
+      if (visibleData.isNotEmpty) {
+        final rightmostKline = visibleData.last;
+        displayData = macdDataList.firstWhere(
+          (m) => m.tradeDate == rightmostKline.tradeDate,
+          orElse: () => macdDataList.last, // 如果找不到，使用最新的
+        );
+      } else {
+        displayData = macdDataList.isNotEmpty ? macdDataList.last : null;
+      }
     }
     
     if (displayData != null) {
@@ -2198,7 +2588,7 @@ class KlineChartPainter extends CustomPainter {
     // }
 
     // 绘制BOLL指标名称和数值（在图表右上角）
-    // 如果有选中，显示选中日期的数据；否则显示最新的数据
+    // 如果有选中，显示选中日期的数据；否则显示当前可见窗口最右侧的数据
     BollData? displayData;
     if (selectedIndex != null && selectedIndex >= 0 && selectedIndex < visibleData.length) {
       // 显示选中日期的BOLL数据
@@ -2208,8 +2598,16 @@ class KlineChartPainter extends CustomPainter {
         orElse: () => bollDataList.last, // 如果找不到，使用最新的
       );
     } else {
-      // 显示最新的BOLL数据
-      displayData = bollDataList.last;
+      // 显示当前可见窗口最右侧的BOLL数据
+      if (visibleData.isNotEmpty) {
+        final rightmostKline = visibleData.last;
+        displayData = bollDataList.firstWhere(
+          (b) => b.tradeDate == rightmostKline.tradeDate,
+          orElse: () => bollDataList.last, // 如果找不到，使用最新的
+        );
+      } else {
+        displayData = bollDataList.isNotEmpty ? bollDataList.last : null;
+      }
     }
     
     if (displayData != null) {
@@ -2302,6 +2700,10 @@ class KlineChartPainter extends CustomPainter {
   bool shouldRepaint(KlineChartPainter oldDelegate) {
     // 检查选中索引是否变化（影响竖线显示）
     if (oldDelegate.selectedIndex != selectedIndex) {
+      return true;
+    }
+    // 检查平移偏移是否变化（影响显示范围）
+    if (oldDelegate.panOffset != panOffset) {
       return true;
     }
     // 比较数据长度和内容，确保数据变化时重新绘制
