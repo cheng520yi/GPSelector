@@ -161,14 +161,15 @@ class StockApiService {
     return isWithinRealTimeWindow();
   }
 
-  // 判断当前时间是否在实时窗口内（≥ 09:30，当天交易日）
+  // 判断当前时间是否在实时窗口内（09:30-16:30，当天交易日）
   static bool isWithinRealTimeWindow({DateTime? referenceTime}) {
     final now = referenceTime ?? DateTime.now();
     if (!isTradingDay(now)) {
       return false;
     }
     final currentTime = now.hour * 100 + now.minute;
-    return currentTime >= 930;
+    // 检查是否在9:30-16:30之间
+    return currentTime >= 930 && currentTime <= 1630;
   }
 
   // 判断当前时间是否已经过了交易开始时间（9:30）

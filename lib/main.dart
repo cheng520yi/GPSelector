@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/stock_selector_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/log_service.dart';
 import 'services/console_capture_service.dart';
 
@@ -31,7 +31,7 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const StockSelectorScreen(),
+      home: const HomeScreen(),
     );
   }
 }
