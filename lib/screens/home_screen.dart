@@ -5,6 +5,7 @@ import '../models/favorite_group.dart';
 import '../services/favorite_stock_service.dart';
 import '../services/favorite_group_service.dart';
 import '../services/stock_api_service.dart';
+import '../services/stock_pool_service.dart';
 import 'stock_detail_screen.dart';
 import 'stock_search_screen.dart';
 import 'favorite_group_edit_screen.dart';
@@ -25,8 +26,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, KlineData> _indexData = {}; // 指数代码 -> K线数据
   bool _isLoading = false;
   String _marketStatus = '未开市'; // 开市、未开市、闭市
-  String _sortType = 'price'; // price, pctChg, change
-  bool _sortAscending = false; // false为降序，true为升序
+  String _sortType = 'marketCap'; // marketCap, pctChg, amount, price
+  bool _sortAscending = false; // false为降序(箭头向上)，true为升序(箭头向下)
 
   // 三个固定指数
   static const List<Map<String, String>> _indices = [
@@ -275,8 +276,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // 检查并补充缺失的总市值数据
+    final stocksWithMarketValue = await _supplementMarketValueData(stocks);
+
     setState(() {
-      _stocks = stocks;
+      _stocks = stocksWithMarketValue;
       _stockData = stockDataMap;
     });
 
@@ -284,25 +288,85 @@ class _HomeScreenState extends State<HomeScreen> {
     _applySort();
   }
 
+  // 补充缺失的总市值数据
+  Future<List<StockInfo>> _supplementMarketValueData(List<StockInfo> stocks) async {
+    // 找出没有总市值的股票
+    final stocksWithoutMarketValue = stocks.where((s) => s.totalMarketValue == null || s.totalMarketValue == 0).toList();
+    
+    if (stocksWithoutMarketValue.isEmpty) {
+      return stocks;
+    }
+
+    try {
+      final tsCodes = stocksWithoutMarketValue.map((s) => s.tsCode).toList();
+      print('📊 发现 ${tsCodes.length} 只股票缺少总市值，开始补充...');
+      
+      // 使用StockPoolService获取总市值数据
+      final marketValueMap = await StockPoolService.getBatchMarketValueDataSingleRequest(
+        tsCodes: tsCodes,
+        targetDate: null, // 获取最新数据
+      );
+
+      print('✅ 成功获取 ${marketValueMap.length} 只股票的总市值数据');
+
+      // 创建新的StockInfo列表，更新总市值
+      final updatedStocks = stocks.map((stock) {
+        if (stock.totalMarketValue == null || stock.totalMarketValue == 0) {
+          final marketValue = marketValueMap[stock.tsCode];
+          if (marketValue != null && marketValue > 0) {
+            // 创建新的StockInfo对象，包含总市值
+            return StockInfo(
+              tsCode: stock.tsCode,
+              name: stock.name,
+              symbol: stock.symbol,
+              area: stock.area,
+              industry: stock.industry,
+              market: stock.market,
+              listDate: stock.listDate,
+              totalMarketValue: marketValue,
+              circMarketValue: stock.circMarketValue,
+            );
+          }
+        }
+        return stock;
+      }).toList();
+
+      return updatedStocks;
+    } catch (e) {
+      print('❌ 补充总市值数据失败: $e');
+      return stocks; // 失败时返回原始列表
+    }
+  }
+
   void _applySort() {
     _stocks.sort((a, b) {
       final dataA = _stockData[a.tsCode];
       final dataB = _stockData[b.tsCode];
       
-      if (dataA == null && dataB == null) return 0;
-      if (dataA == null) return 1;
-      if (dataB == null) return -1;
-
       int comparison = 0;
       switch (_sortType) {
-        case 'price':
-          comparison = dataA.close.compareTo(dataB.close);
+        case 'marketCap':
+          final marketCapA = a.totalMarketValue ?? 0.0;
+          final marketCapB = b.totalMarketValue ?? 0.0;
+          comparison = marketCapA.compareTo(marketCapB);
           break;
         case 'pctChg':
+          if (dataA == null && dataB == null) return 0;
+          if (dataA == null) return 1;
+          if (dataB == null) return -1;
           comparison = dataA.pctChg.compareTo(dataB.pctChg);
           break;
-        case 'change':
-          comparison = dataA.change.compareTo(dataB.change);
+        case 'amount':
+          if (dataA == null && dataB == null) return 0;
+          if (dataA == null) return 1;
+          if (dataB == null) return -1;
+          comparison = dataA.amount.compareTo(dataB.amount);
+          break;
+        case 'price':
+          if (dataA == null && dataB == null) return 0;
+          if (dataA == null) return 1;
+          if (dataB == null) return -1;
+          comparison = dataA.close.compareTo(dataB.close);
           break;
       }
 
@@ -596,33 +660,46 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSortBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       color: Colors.white,
       child: Row(
         children: [
-          const Text(
-            '排序:',
-            style: TextStyle(fontSize: 14),
-          ),
-          const SizedBox(width: 8),
-          _buildSortChip('price', '最新'),
-          const SizedBox(width: 8),
-          _buildSortChip('pctChg', '涨幅'),
-          const SizedBox(width: 8),
-          _buildSortChip('change', '涨跌'),
-          const Spacer(),
-          IconButton(
-            icon: Icon(
-              _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-              size: 20,
+          // 左侧占位，与列表中的名称/代码区域对齐（flex: 2）
+          Expanded(
+            flex: 2,
+            child: Row(
+              children: [
+                const Text(
+                  '排序:',
+                  style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+              ],
             ),
-            onPressed: () {
-              setState(() {
-                _sortAscending = !_sortAscending;
-              });
-              _applySort();
-            },
-            tooltip: _sortAscending ? '升序' : '降序',
+          ),
+          const SizedBox(width: 4),
+          // 总市值按钮（改为"总值"）
+          Expanded(
+            flex: 1,
+            child: _buildSortChip('marketCap', '总值'),
+          ),
+          const SizedBox(width: 4),
+          // 涨幅按钮
+          Expanded(
+            flex: 1,
+            child: _buildSortChip('pctChg', '涨幅'),
+          ),
+          const SizedBox(width: 4),
+          // 成交额按钮（改为"成交"）
+          Expanded(
+            flex: 1,
+            child: _buildSortChip('amount', '成交'),
+          ),
+          const SizedBox(width: 4),
+          // 价格按钮
+          Expanded(
+            flex: 1,
+            child: _buildSortChip('price', '价格'),
           ),
         ],
       ),
@@ -631,22 +708,54 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSortChip(String type, String label) {
     final isSelected = _sortType == type;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (_sortType == type) {
+            // 同一个按钮，切换升降序
+            _sortAscending = !_sortAscending;
+          } else {
+            // 切换排序字段时，默认降序（箭头向上）
             _sortType = type;
-          });
+            _sortAscending = false;
+          }
           _applySort();
-        }
+        });
       },
-      selectedColor: Colors.blue[100],
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.blue[700] : Colors.black,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        fontSize: 12,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue[100] : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? Colors.blue[300]! : Colors.grey[300]!,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.blue[700] : Colors.black,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 2),
+              Icon(
+                _sortAscending ? Icons.arrow_downward : Icons.arrow_upward,
+                size: 14,
+                color: Colors.blue[700],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -679,6 +788,31 @@ class _HomeScreenState extends State<HomeScreen> {
     final isRising = data != null && data.close >= data.preClose;
     final priceColor = isRising ? Colors.red : Colors.green;
 
+    // 格式化总市值（亿元）
+    String formatMarketCap(double? value) {
+      if (value == null || value == 0) return '--';
+      if (value >= 10000) {
+        return '${(value / 10000).toStringAsFixed(2)}万亿';
+      } else if (value >= 1) {
+        return '${value.toStringAsFixed(2)}亿';
+      } else {
+        return '${(value * 10000).toStringAsFixed(0)}万';
+      }
+    }
+
+    // 格式化成交额（亿元）
+    String formatAmount(double? value) {
+      if (value == null || value == 0) return '--';
+      final amountInYi = value / 100000; // 千元转亿元
+      if (amountInYi >= 100) {
+        return '${amountInYi.toStringAsFixed(2)}亿';
+      } else if (amountInYi >= 1) {
+        return '${amountInYi.toStringAsFixed(2)}亿';
+      } else {
+        return '${(amountInYi * 10000).toStringAsFixed(0)}万';
+      }
+    }
+
     return InkWell(
       onTap: () {
         Navigator.of(context).push(
@@ -693,7 +827,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border(
@@ -701,67 +835,107 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // 股票名称和代码
             Expanded(
+              flex: 2,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     stock.name,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 1),
                   Text(
                     stock.tsCode,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 10,
                       color: Colors.grey[600],
                     ),
                   ),
                 ],
               ),
             ),
-            // 价格、涨幅、涨跌额
+            // 数据列：按 总市值 -> 涨幅 -> 成交额 -> 价格 的顺序，和排序按钮对应
             if (data != null) ...[
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    data.close.toStringAsFixed(2),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: priceColor,
-                    ),
+              // 总市值
+              Expanded(
+                flex: 1,
+                child: Text(
+                  formatMarketCap(stock.totalMarketValue),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[700],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${data.pctChg >= 0 ? "+" : ""}${data.pctChg.toStringAsFixed(2)}%',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: priceColor,
-                    ),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              // 涨跌幅
+              Expanded(
+                flex: 1,
+                child: Text(
+                  '${data.pctChg >= 0 ? "+" : ""}${data.pctChg.toStringAsFixed(2)}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: priceColor,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${data.change >= 0 ? "+" : ""}${data.change.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: priceColor,
-                    ),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              // 成交额
+              Expanded(
+                flex: 1,
+                child: Text(
+                  formatAmount(data.amount),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[700],
                   ),
-                ],
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              // 价格
+              Expanded(
+                flex: 1,
+                child: Text(
+                  data.close.toStringAsFixed(2),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: priceColor,
+                  ),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ] else
-              const Text(
-                '--',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
+              const Expanded(
+                child: Text(
+                  '--',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                  textAlign: TextAlign.right,
                 ),
               ),
           ],
@@ -770,4 +944,5 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
 
