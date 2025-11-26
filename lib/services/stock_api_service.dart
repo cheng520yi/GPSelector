@@ -23,27 +23,34 @@ class StockApiService {
   // iFinD日期序列接口配置（用于MACD等指标）
   static const String iFinDDateSequenceUrl = 'https://quantapi.51ifind.com/api/v1/date_sequence';
   
-  // TODO: 暂时注释掉动态token刷新相关配置，使用固定token
-  // static const String iFinDTokenRefreshUrl = 'https://quantapi.51ifind.com/api/v1/get_access_token';
-  // static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTA5LTEwIDE2OjA3OjQ5In0=.eyJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyIjp7ImFjY291bnQiOiJzaGl5b25nMTI5NyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEwLTEwIDE2OjA3OjIwIiwic2Vzc3Npb24iOiIyOWQwNjZkOTM4MzNiMTA3MTlkZDAxNmNlMTYxZjIxNSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc1NzQ5MTY2ODk4MyIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MDYxODQ4ODUiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.87A28522BEA4446B318DCE02DC7DDA5D9A0AE4E7E4CB2EC45EA7F3A82F13903F';
+  // iFinD token刷新接口配置
+  static const String iFinDTokenRefreshUrl = 'https://quantapi.51ifind.com/api/v1/get_access_token';
+  static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTExLTExIDE1OjU2OjU4In0=.eyJ1aWQiOiI4MTk2MjMzODEiLCJ1c2VyIjp7ImFjY2Vzc1Rva2VuIjoiYTM4ZTk2ZjJiOTExYzYwMDYxZDNiZTZkNjcxZmMyNzA1NjhlYjJiMC5zaWduc19PREU1TmpJek16Z3giLCJhY2Nlc3NUb2tlbkV4cGlyZWRUaW1lIjoiMjAyNS0xMS0xMSAxNTo1Njo1NyIsImFjY291bnQiOiJzaGl5b25nMTUyNyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEyLTExIDE1OjUyOjU3Iiwic2Vzc3Npb24iOiI5NjhhYTM0YTFlMTVhYjA3YTY1MGQ2OWY0NTA0ODQxMSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc2Mjg0NzgxNzk5MiIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MTk2MjMzODEiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.C2836514003219A92090FD738590F5D83C65F0FA8247F3DDCA11176FBCDD944F';
+  // 当前access_token（动态刷新）
+  static String _currentAccessToken = 'b0415c25aa67e572b8e6ae2d0830f35d0667b978.signs_ODE5NjIzMzgx';
   
-  // 固定的access_token（不再动态刷新）
-  static const String _currentAccessToken = 'dca59286069086c47222b5e08072f78bfc6ce0a1.signs_ODE5NjIzMzgx';
+  // 正在刷新token的标志，避免并发刷新
+  static bool _isRefreshingToken = false;
   
-  // TODO: 暂时注释掉token过期时间管理
-  // static DateTime? _tokenExpireTime;
-
-  // 获取固定的access_token（不再使用动态刷新）
-  static String getCurrentAccessToken() {
-    return _currentAccessToken;
-  }
-  
-  // TODO: 暂时注释掉动态token刷新相关函数，保留代码以便将来恢复
-  /*
   // 通过refresh_token获取新的access_token
   static Future<String?> refreshAccessToken() async {
+    // 如果正在刷新，等待刷新完成
+    if (_isRefreshingToken) {
+      print('⏳ Token正在刷新中，等待完成...');
+      int waitCount = 0;
+      while (_isRefreshingToken && waitCount < 50) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        waitCount++;
+      }
+      if (!_isRefreshingToken) {
+        return _currentAccessToken;
+      }
+    }
+    
+    _isRefreshingToken = true;
     try {
       print('🔄 开始刷新iFinD access_token...');
+      ConsoleCaptureService.instance.capturePrint('🔄 开始刷新iFinD access_token...');
       
       final response = await http.post(
         Uri.parse(iFinDTokenRefreshUrl),
@@ -55,6 +62,7 @@ class StockApiService {
       
       print('🔍 Token刷新HTTP响应状态码: ${response.statusCode}');
       print('🔍 Token刷新HTTP响应体: ${response.body}');
+      ConsoleCaptureService.instance.capturePrint('🔍 Token刷新HTTP响应状态码: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
@@ -67,18 +75,12 @@ class StockApiService {
             
             if (newAccessToken.isNotEmpty) {
               _currentAccessToken = newAccessToken;
-              
-              // 解析过期时间
-              try {
-                _tokenExpireTime = DateTime.parse(expiredTimeStr);
-                print('✅ Token刷新成功，新token: ${newAccessToken.substring(0, 20)}...');
-                print('✅ Token过期时间: $_tokenExpireTime');
-                return newAccessToken;
-              } catch (e) {
-                print('⚠️ 解析token过期时间失败: $e');
-                // 即使解析过期时间失败，也使用新token
-                return newAccessToken;
+              print('✅ Token刷新成功，新token: ${newAccessToken.substring(0, 20)}...');
+              if (expiredTimeStr.isNotEmpty) {
+                print('✅ Token过期时间: $expiredTimeStr');
               }
+              ConsoleCaptureService.instance.capturePrint('✅ Token刷新成功');
+              return newAccessToken;
             } else {
               print('❌ Token刷新响应中access_token为空');
               return null;
@@ -98,57 +100,51 @@ class StockApiService {
     } catch (e) {
       print('❌ Token刷新异常: $e');
       return null;
+    } finally {
+      _isRefreshingToken = false;
     }
   }
   
-  // 检查token是否需要刷新
-  static bool isTokenExpired() {
-    if (_tokenExpireTime == null) {
-      // 如果没有过期时间信息，假设token可能已过期，需要刷新
-      return true;
-    }
-    
-    // 提前5分钟刷新token，避免在关键时刻过期
-    final now = DateTime.now();
-    final refreshTime = _tokenExpireTime!.subtract(const Duration(minutes: 5));
-    
-    return now.isAfter(refreshTime);
-  }
-  
-  // 获取当前有效的access_token，如果过期则自动刷新
-  static Future<String> getCurrentAccessToken() async {
-    if (isTokenExpired()) {
-      print('🔄 Token已过期或即将过期，开始刷新...');
-      final newToken = await refreshAccessToken();
-      if (newToken != null) {
-        return newToken;
-      } else {
-        print('⚠️ Token刷新失败，使用当前token');
-        return _currentAccessToken;
-      }
-    }
-    
+  // 获取当前有效的access_token（不进行过期检查，根据实际请求响应判断）
+  static String getCurrentAccessToken() {
     return _currentAccessToken;
   }
   
-  // 测试token刷新功能
-  static Future<void> testTokenRefresh() async {
-    print('🧪 开始测试iFinD token刷新功能...');
-    
-    try {
-      final newToken = await refreshAccessToken();
-      if (newToken != null) {
-        print('✅ Token刷新测试成功！');
-        print('✅ 新token: ${newToken.substring(0, 30)}...');
-        print('✅ Token过期时间: $_tokenExpireTime');
-      } else {
-        print('❌ Token刷新测试失败！');
-      }
-    } catch (e) {
-      print('❌ Token刷新测试异常: $e');
+  // 检查响应是否表示token失效（token不合法）
+  static bool isTokenInvalidResponse(int statusCode, Map<String, dynamic>? responseData) {
+    // HTTP 401 表示未授权，通常是token失效
+    if (statusCode == 401) {
+      return true;
     }
+    
+    // 检查API返回的错误码和错误信息
+    if (responseData != null) {
+      final errorcode = responseData['errorcode'];
+      final errmsg = responseData['errmsg']?.toString().toLowerCase() ?? '';
+      
+      // 检查错误码（根据iFinD API实际返回的错误码调整）
+      if (errorcode != null && errorcode != 0) {
+        // 检查错误信息中是否包含token相关的关键词
+        if (errmsg.contains('token') || 
+            errmsg.contains('不合法') || 
+            errmsg.contains('非法') ||
+            errmsg.contains('无效') ||
+            errmsg.contains('invalid') ||
+            errmsg.contains('unauthorized') ||
+            errmsg.contains('expired')) {
+          return true;
+        }
+        
+        // 某些特定的错误码可能表示token问题（根据实际API文档调整）
+        // 例如：401, 403, 1001等（需要根据实际返回的错误码调整）
+        if (errorcode == 401 || errorcode == 403) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
   }
-  */
 
   // 判断给定日期是否为交易日（目前仅排除周末）
   static bool isTradingDay(DateTime date) {
@@ -444,10 +440,10 @@ class StockApiService {
       print('🔍 iFinD请求数据: ${json.encode(requestData)}');
       ConsoleCaptureService.instance.capturePrint('🔍 iFinD请求数据: ${json.encode(requestData)}');
 
-      // 获取固定的access_token
-      final currentToken = getCurrentAccessToken();
+      // 获取当前有效的access_token
+      String currentToken = getCurrentAccessToken();
       
-      final response = await http.post(
+      var response = await http.post(
         Uri.parse(iFinDBaseUrl),
         headers: {
           'Content-Type': 'application/json',
@@ -459,12 +455,62 @@ class StockApiService {
       print('🔍 iFinD HTTP响应状态码: ${response.statusCode}');
       print('🔍 iFinD HTTP响应体: ${response.body}');
 
+      // 检查响应是否表示token不合法，如果是则刷新token并重试
+      Map<String, dynamic>? responseData;
+      try {
+        responseData = json.decode(response.body) as Map<String, dynamic>?;
+      } catch (e) {
+        print('⚠️ 解析响应JSON失败: $e');
+      }
+      
+      if (isTokenInvalidResponse(response.statusCode, responseData)) {
+        print('⚠️ iFinD接口提示token不合法，错误码: ${responseData?['errorcode']}, 错误信息: ${responseData?['errmsg']}');
+        print('🔄 开始刷新token...');
+        final newToken = await refreshAccessToken();
+        if (newToken != null && newToken != currentToken) {
+          print('🔄 使用新token重试请求...');
+          response = await http.post(
+            Uri.parse(iFinDBaseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'access_token': newToken,
+            },
+            body: json.encode(requestData),
+          );
+          print('🔍 iFinD重试后HTTP响应状态码: ${response.statusCode}');
+          print('🔍 iFinD重试后HTTP响应体: ${response.body}');
+          // 重新解析重试后的响应
+          try {
+            responseData = json.decode(response.body) as Map<String, dynamic>?;
+          } catch (e) {
+            print('⚠️ 解析重试后响应JSON失败: $e');
+          }
+        } else {
+          print('❌ Token刷新失败，无法重试');
+        }
+      }
+
       if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
+        // 如果responseData已经在上面解析过了，直接使用；否则重新解析
+        if (responseData == null) {
+          try {
+            responseData = json.decode(response.body) as Map<String, dynamic>?;
+          } catch (e) {
+            print('⚠️ 解析iFinD响应JSON失败: $e');
+            return {};
+          }
+        }
+        
+        if (responseData == null) {
+          print('❌ iFinD响应数据为空');
+          return {};
+        }
+        
+        final Map<String, dynamic> finalResponseData = responseData;
         
         // 检查iFinD API的响应格式
-        if (responseData['errorcode'] == 0 || responseData['errorcode'] == null) {
-          final tables = responseData['tables'];
+        if (finalResponseData['errorcode'] == 0 || finalResponseData['errorcode'] == null) {
+          final tables = finalResponseData['tables'];
           if (tables != null && tables is List) {
             Map<String, KlineData> result = {};
             
@@ -519,7 +565,7 @@ class StockApiService {
             return {};
           }
         } else {
-          print('❌ iFinD API返回错误: ${responseData['errorcode']} - ${responseData['errmsg']}');
+          print('❌ iFinD API返回错误: ${finalResponseData['errorcode']} - ${finalResponseData['errmsg']}');
           return {};
         }
       } else {
@@ -1590,9 +1636,10 @@ class StockApiService {
 
       print('📡 请求MACD数据: $iFinDCode, 日期范围: $startDate - $endDate');
       
-      final currentToken = getCurrentAccessToken();
+      // 获取当前有效的access_token
+      String currentToken = getCurrentAccessToken();
       
-      final response = await http.post(
+      var response = await http.post(
         Uri.parse(iFinDDateSequenceUrl),
         headers: {
           'Content-Type': 'application/json',
@@ -1600,6 +1647,41 @@ class StockApiService {
         },
         body: json.encode(requestData),
       );
+      
+      // 检查响应是否表示token不合法，如果是则刷新token并重试
+      Map<String, dynamic>? responseData;
+      try {
+        responseData = json.decode(response.body) as Map<String, dynamic>?;
+      } catch (e) {
+        print('⚠️ 解析date_sequence响应JSON失败: $e');
+      }
+      
+      if (isTokenInvalidResponse(response.statusCode, responseData)) {
+        print('⚠️ iFinD date_sequence接口提示token不合法，错误码: ${responseData?['errorcode']}, 错误信息: ${responseData?['errmsg']}');
+        print('🔄 开始刷新token...');
+        final newToken = await refreshAccessToken();
+        if (newToken != null && newToken != currentToken) {
+          print('🔄 使用新token重试date_sequence请求...');
+          response = await http.post(
+            Uri.parse(iFinDDateSequenceUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'access_token': newToken,
+            },
+            body: json.encode(requestData),
+          );
+          print('🔍 date_sequence重试后HTTP响应状态码: ${response.statusCode}');
+          print('🔍 date_sequence重试后HTTP响应体: ${response.body}');
+          // 重新解析重试后的响应
+          try {
+            responseData = json.decode(response.body) as Map<String, dynamic>?;
+          } catch (e) {
+            print('⚠️ 解析date_sequence重试后响应JSON失败: $e');
+          }
+        } else {
+          print('❌ Token刷新失败，无法重试date_sequence请求');
+        }
+      }
 
       print('🔍 MACD HTTP响应状态码: ${response.statusCode}');
       print('🔍 MACD HTTP响应体（完整）: ${response.body}');

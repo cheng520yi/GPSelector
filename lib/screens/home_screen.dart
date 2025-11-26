@@ -94,8 +94,21 @@ class _HomeScreenState extends State<HomeScreen> {
       final groups = await FavoriteGroupService.getAllGroups();
       setState(() {
         _groups = groups;
-        if (_groups.isNotEmpty && _selectedGroupId == 'default') {
-          _selectedGroupId = _groups.first.id;
+        // 只有在初始化时（_selectedGroupId为'default'）才设置默认选中第一个
+        // 如果已经有选中的分组，检查该分组是否还存在，如果不存在才选择第一个
+        if (_groups.isNotEmpty) {
+          if (_selectedGroupId == 'default') {
+            // 初始化时，选择第一个分组
+            _selectedGroupId = _groups.first.id;
+          } else {
+            // 检查当前选中的分组是否还存在
+            final currentGroupExists = _groups.any((g) => g.id == _selectedGroupId);
+            if (!currentGroupExists) {
+              // 如果当前选中的分组不存在了，选择第一个分组
+              _selectedGroupId = _groups.first.id;
+            }
+            // 如果当前选中的分组存在，保持选中状态不变
+          }
         }
       });
 
@@ -405,7 +418,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (context) => const StockSelectorScreen(),
                   ),
-                );
+                ).then((_) {
+                  // 从筛选页面返回时，只刷新股票数据，不重新加载分组
+                  _loadStockData();
+                });
               },
               tooltip: '筛选',
               padding: EdgeInsets.zero,
@@ -422,7 +438,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (context) => const StockSearchScreen(),
                 ),
               );
-              _loadData();
+              // 从搜索页面返回时，只刷新股票数据，不重新加载分组
+              _loadStockData();
             },
             tooltip: '添加股票',
           ),
@@ -447,7 +464,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (context) => const FavoriteGroupEditScreen(),
                   ),
                 ).then((_) {
-                  _loadData();
+                  // 从分组管理页面返回时，只刷新股票数据，不重新加载分组，保持当前选中状态
+                  _loadStockData();
                 });
               }
             },
@@ -516,7 +534,8 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context) => const StockSearchScreen(),
             ),
           );
-          _loadData();
+          // 从搜索页面返回时，只刷新股票数据，不重新加载分组
+          _loadStockData();
         },
         child: const Icon(Icons.add),
         tooltip: '添加股票',
@@ -578,7 +597,10 @@ class _HomeScreenState extends State<HomeScreen> {
               currentKlineData: data,
             ),
           ),
-        );
+        ).then((_) {
+          // 从指数详情页返回时，只刷新股票数据，不重新加载分组
+          _loadStockData();
+        });
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 2),
@@ -823,7 +845,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ).then((_) {
-          _loadData();
+          // 从详情页返回时，只刷新股票数据，不重新加载分组，保持当前选中状态
+          _loadStockData();
         });
       },
       child: Container(

@@ -8,6 +8,8 @@ import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import 'batch_optimizer.dart';
 import 'stock_pool_config_service.dart';
+import 'stock_api_service.dart';
+import 'stock_api_service.dart';
 
 class StockPoolService {
   static const String baseUrl = 'http://api.tushare.pro';
@@ -564,6 +566,8 @@ class StockPoolService {
       };
 
       print('📡 批量请求总市值数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
+      print('📡 请求的股票代码: $tsCodesString');
+      print('📡 请求参数: ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(baseUrl),
@@ -573,8 +577,13 @@ class StockPoolService {
         body: json.encode(requestData),
       );
 
+      print('📡 HTTP响应状态码: ${response.statusCode}');
+      print('📡 HTTP响应体: ${response.body}');
+
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        print('📡 API返回code: ${responseData['code']}, msg: ${responseData['msg']}');
         
         if (responseData['code'] == 0) {
           final data = responseData['data'];
@@ -584,6 +593,7 @@ class StockPoolService {
             final List<String> fields = fieldsData.cast<String>();
             
             print('📊 批量总市值响应: 获取到 ${items.length} 条数据');
+            print('📊 返回的字段: $fields');
             
             // 按股票代码分组数据，每个股票取最新的数据
             Map<String, double> result = {};
@@ -615,21 +625,178 @@ class StockPoolService {
               }
             }
             
+            // 如果TuShare返回空数据，尝试使用iFind接口作为备选
+            if (result.isEmpty && items.isEmpty) {
+              print('⚠️ TuShare返回空数据，尝试使用iFind接口获取总市值...');
+              final iFindResult = await _getMarketValueFromIFinD(tsCodes);
+              if (iFindResult.isNotEmpty) {
+                print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
+                return iFindResult;
+              } else {
+                print('⚠️ iFind接口也未能获取到数据');
+              }
+            }
+            
             return result;
           } else {
-            print('API返回数据为空');
+            print('❌ API返回data为null，尝试使用iFind接口...');
+            final iFindResult = await _getMarketValueFromIFinD(tsCodes);
+            if (iFindResult.isNotEmpty) {
+              print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
+              return iFindResult;
+            }
             return {};
           }
         } else {
-          print('API返回错误: ${responseData['msg']}');
+          print('❌ API返回错误: ${responseData['msg']}，尝试使用iFind接口...');
+          final iFindResult = await _getMarketValueFromIFinD(tsCodes);
+          if (iFindResult.isNotEmpty) {
+            print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
+            return iFindResult;
+          }
           return {};
         }
       } else {
-        print('HTTP请求失败: ${response.statusCode}');
+        print('❌ HTTP请求失败: ${response.statusCode}，尝试使用iFind接口...');
+        final iFindResult = await _getMarketValueFromIFinD(tsCodes);
+        if (iFindResult.isNotEmpty) {
+          print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
+          return iFindResult;
+        }
         return {};
       }
     } catch (e) {
-      print('批量获取总市值数据失败: $e');
+      print('❌ 批量获取总市值数据失败: $e，尝试使用iFind接口...');
+      try {
+        final iFindResult = await _getMarketValueFromIFinD(tsCodes);
+        if (iFindResult.isNotEmpty) {
+          print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
+          return iFindResult;
+        }
+      } catch (e2) {
+        print('❌ iFind接口获取总市值也失败: $e2');
+      }
+      return {};
+    }
+  }
+  
+  // 使用iFind接口获取总市值数据
+  static Future<Map<String, double>> _getMarketValueFromIFinD(List<String> tsCodes) async {
+    try {
+      print('📡 使用iFind接口获取总市值数据: ${tsCodes.length}只股票');
+      
+      // 使用iFind实时行情接口，请求mv字段（总市值）
+      final String codesString = tsCodes.join(',');
+      final Map<String, dynamic> requestData = {
+        "codes": codesString,
+        "indicators": "mv" // 只请求总市值字段
+      };
+      
+      final currentToken = StockApiService.getCurrentAccessToken();
+      // iFind实时行情接口URL
+      const String iFinDBaseUrl = 'https://quantapi.51ifind.com/api/v1/real_time_quotation';
+      var response = await http.post(
+        Uri.parse(iFinDBaseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'access_token': currentToken,
+        },
+        body: json.encode(requestData),
+      );
+      
+      print('📡 iFind总市值HTTP响应状态码: ${response.statusCode}');
+      print('📡 iFind总市值HTTP响应体: ${response.body}');
+      
+      // 检查响应是否表示token不合法，如果是则刷新token并重试
+      Map<String, dynamic>? responseData;
+      try {
+        responseData = json.decode(response.body) as Map<String, dynamic>?;
+      } catch (e) {
+        print('⚠️ 解析iFind总市值响应JSON失败: $e');
+      }
+      
+      if (StockApiService.isTokenInvalidResponse(response.statusCode, responseData)) {
+        print('⚠️ iFind总市值接口提示token不合法，错误码: ${responseData?['errorcode']}, 错误信息: ${responseData?['errmsg']}');
+        print('🔄 开始刷新token...');
+        final newToken = await StockApiService.refreshAccessToken();
+        if (newToken != null && newToken != currentToken) {
+          print('🔄 使用新token重试iFind总市值请求...');
+          response = await http.post(
+            Uri.parse(iFinDBaseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'access_token': newToken,
+            },
+            body: json.encode(requestData),
+          );
+          print('📡 iFind总市值重试后HTTP响应状态码: ${response.statusCode}');
+          print('📡 iFind总市值重试后HTTP响应体: ${response.body}');
+          // 重新解析重试后的响应
+          try {
+            responseData = json.decode(response.body) as Map<String, dynamic>?;
+          } catch (e) {
+            print('⚠️ 解析iFind总市值重试后响应JSON失败: $e');
+          }
+        } else {
+          print('❌ Token刷新失败，无法重试iFind总市值请求');
+        }
+      }
+      
+      if (response.statusCode == 200) {
+        // 如果responseData已经在上面解析过了，直接使用；否则重新解析
+        if (responseData == null) {
+          try {
+            responseData = json.decode(response.body) as Map<String, dynamic>?;
+          } catch (e) {
+            print('⚠️ 解析iFind总市值响应JSON失败: $e');
+            return {};
+          }
+        }
+        
+        if (responseData != null && 
+            (responseData['errorcode'] == 0 || responseData['errorcode'] == null)) {
+          final tables = responseData['tables'];
+          if (tables != null && tables is List) {
+            Map<String, double> result = {};
+            
+            for (var tableItem in tables) {
+              try {
+                final String stockCode = tableItem['thscode'] ?? '';
+                final table = tableItem['table'];
+                
+                if (stockCode.isNotEmpty && table != null) {
+                  // iFind返回的mv是数组格式，取第一个元素
+                  final mv = (table['mv'] as List?)?.isNotEmpty == true 
+                      ? table['mv'][0] 
+                      : null;
+                  
+                  if (mv != null) {
+                    // iFind返回的总市值单位是元，需要转换为亿元
+                    final mvValue = double.tryParse(mv.toString()) ?? 0.0;
+                    if (mvValue > 0) {
+                      final mvInYi = mvValue / 100000000.0; // 元转亿元
+                      result[stockCode] = mvInYi;
+                      print('✅ iFind获取${stockCode}总市值: ${mvInYi.toStringAsFixed(2)}亿元');
+                    }
+                  }
+                }
+              } catch (e) {
+                print('❌ iFind解析股票${tableItem['thscode']}总市值失败: $e');
+              }
+            }
+            
+            return result;
+          }
+        } else {
+          print('❌ iFind接口返回错误: ${responseData?['errorcode']} - ${responseData?['errmsg']}');
+        }
+      } else {
+        print('❌ iFind总市值HTTP请求失败: ${response.statusCode}');
+      }
+      
+      return {};
+    } catch (e) {
+      print('❌ iFind接口获取总市值异常: $e');
       return {};
     }
   }
