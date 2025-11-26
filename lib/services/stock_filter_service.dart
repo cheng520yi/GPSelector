@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
@@ -68,6 +69,7 @@ class StockFilterService {
       if (selectedDay == today) {
         final String dateStr = DateFormat('yyyy-MM-dd').format(selectedDay);
 
+        // 检查是否为交易日
         if (!StockApiService.isTradingDay(combination.selectedDate)) {
           final message = '当前日期 $dateStr 为非交易日，暂无数据，请选择历史交易日。';
           print('⚠️ $message');
@@ -75,32 +77,33 @@ class StockFilterService {
           throw Exception('当前日期无数据：非交易日');
         }
 
+        // 检查是否在9:30之前
+        final currentTime = currentDateTime.hour * 100 + currentDateTime.minute;
+        if (currentTime < 930) {
+          final message = '当前时间未到 09:30，非交易时间，暂无数据。';
+          print('⚠️ $message');
+          ConsoleCaptureService.instance.capturePrint('⚠️ $message');
+          throw Exception('当前日期无数据：未到交易时间');
+        }
+
         if (config.enableRealtimeInterface) {
-          if (!StockApiService.isAfterTradingStart(referenceTime: currentDateTime)) {
-            final message = '当前时间未到 09:30，iFinD 暂无 $dateStr 的数据。';
-            print('⚠️ $message');
-            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
-            throw Exception('当前日期无数据：未到交易时间');
+          // 开关打开时，检查是否在配置的时间窗口内
+          final endTime = config.realtimeEndTime ?? const TimeOfDay(hour: 24, minute: 0);
+          final endTimeMinutes = endTime.hour * 100 + endTime.minute;
+          
+          if (currentTime <= endTimeMinutes) {
+            // 在时间窗口内，使用iFinD实时接口
+            useIFinDRealTime = true;
+            allowHistoryFetch = false;
+          } else {
+            // 超过截止时间，使用TuShare历史接口
+            useIFinDRealTime = false;
+            allowHistoryFetch = true;
           }
-
-          if (!StockApiService.isWithinRealTimeWindow(referenceTime: currentDateTime)) {
-            final message = '当前时间不在交易时段，iFinD 暂无 $dateStr 的数据。';
-            print('⚠️ $message');
-            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
-            throw Exception('当前日期无数据：非交易时段');
-          }
-
+        } else {
+          // 开关关闭时，9:30-24:00都使用iFinD接口
           useIFinDRealTime = true;
           allowHistoryFetch = false;
-        } else {
-          useIFinDRealTime = false;
-          allowHistoryFetch = StockApiService.isAfterHistoryAvailability(referenceTime: currentDateTime);
-          if (!allowHistoryFetch) {
-            final message = '未开启实时接口，且当前时间未到 16:30，TuShare 暂无 $dateStr 的历史数据。';
-            print('⚠️ $message');
-            ConsoleCaptureService.instance.capturePrint('⚠️ $message');
-            throw Exception('当前日期无数据：历史数据未更新');
-          }
         }
       } else {
         useIFinDRealTime = StockApiService.shouldUseRealTimeData(combination.selectedDate);

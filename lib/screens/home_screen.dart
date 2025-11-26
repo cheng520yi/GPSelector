@@ -6,6 +6,7 @@ import '../services/favorite_stock_service.dart';
 import '../services/favorite_group_service.dart';
 import '../services/stock_api_service.dart';
 import '../services/stock_pool_service.dart';
+import '../services/stock_pool_config_service.dart';
 import 'stock_detail_screen.dart';
 import 'stock_search_screen.dart';
 import 'favorite_group_edit_screen.dart';
@@ -225,8 +226,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 并行获取股票数据
     final now = DateTime.now();
-    final shouldUseRealTime = StockApiService.isTradingDay(now) &&
-        StockApiService.isWithinRealTimeWindow();
+    final config = await StockPoolConfigService.getConfig();
+    final currentTime = now.hour * 100 + now.minute;
+    
+    // 判断是否应该使用实时接口
+    bool shouldUseRealTime = false;
+    if (StockApiService.isTradingDay(now) && currentTime >= 930) {
+      if (config.enableRealtimeInterface) {
+        // 开关打开时，检查是否在配置的时间窗口内
+        final endTime = config.realtimeEndTime ?? const TimeOfDay(hour: 24, minute: 0);
+        final endTimeMinutes = endTime.hour * 100 + endTime.minute;
+        if (currentTime <= endTimeMinutes) {
+          shouldUseRealTime = true;
+        }
+      } else {
+        // 开关关闭时，9:30-24:00都使用iFinD接口
+        shouldUseRealTime = true;
+      }
+    }
 
     final Map<String, KlineData> stockDataMap = {};
 

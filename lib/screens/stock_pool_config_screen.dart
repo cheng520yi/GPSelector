@@ -550,6 +550,60 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                 },
                 activeColor: Colors.purple[400],
               ),
+              const SizedBox(height: 8),
+              ListTile(
+                title: const Text('实时接口截止时间'),
+                subtitle: Text(
+                  _config.realtimeEndTime != null
+                      ? '${_config.realtimeEndTime!.hour.toString().padLeft(2, '0')}:${_config.realtimeEndTime!.minute.toString().padLeft(2, '0')}'
+                      : '未设置（默认24:00）',
+                ),
+                trailing: const Icon(Icons.access_time),
+                onTap: () async {
+                  final TimeOfDay? picked = await showTimePicker(
+                    context: context,
+                    initialTime: _config.realtimeEndTime ?? const TimeOfDay(hour: 16, minute: 30),
+                    builder: (context, child) {
+                      return Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: ColorScheme.light(
+                            primary: Colors.purple[400]!,
+                            onPrimary: Colors.white,
+                            surface: Colors.white,
+                            onSurface: Colors.black,
+                          ),
+                        ),
+                        child: child!,
+                      );
+                    },
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _config = _config.copyWith(realtimeEndTime: picked);
+                    });
+                    try {
+                      await StockPoolConfigService.setRealtimeEndTime(picked);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('已设置截止时间为 ${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('更新截止时间配置失败: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
+              ),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -558,7 +612,9 @@ class _StockPoolConfigScreenState extends State<StockPoolConfigScreen> with Sing
                   border: Border.all(color: Colors.purple[100]!),
                 ),
                 child: Text(
-                  '开启后，当筛选日期为当天且在交易日 09:30 之后进行首页筛选时，将使用 iFinD 实时接口；股票池更新逻辑不受影响。',
+                  _config.enableRealtimeInterface
+                      ? '开启后，当筛选日期为当天且在交易日 09:30 之后进行首页筛选时，将使用 iFinD 实时接口；股票池更新逻辑不受影响。\n\n如果设置了截止时间（如16:30），则在09:30-16:30之间使用iFinD接口，16:30后使用TuShare接口。如果未设置截止时间，则在09:30-24:00之间使用iFinD接口。'
+                      : '开启后，当筛选日期为当天且在交易日 09:30 之后进行首页筛选时，将使用 iFinD 实时接口；股票池更新逻辑不受影响。',
                   style: TextStyle(
                     color: Colors.purple[700],
                     fontSize: 12,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StockPoolConfigService {
@@ -10,6 +11,7 @@ class StockPoolConfigService {
   static const String _keyAutoUpdate = 'auto_update';
   static const String _keyUpdateInterval = 'update_interval';
   static const String _keyEnableRealtimeInterface = 'enable_realtime_interface';
+  static const String _keyRealtimeEndTime = 'realtime_end_time'; // 格式: "HH:mm"
 
   // 股票池配置模型
   static Future<StockPoolConfig> getConfig() async {
@@ -24,6 +26,7 @@ class StockPoolConfigService {
       autoUpdate: prefs.getBool(_keyAutoUpdate) ?? false,
       updateInterval: prefs.getInt(_keyUpdateInterval) ?? 24, // 默认24小时
       enableRealtimeInterface: prefs.getBool(_keyEnableRealtimeInterface) ?? false,
+      realtimeEndTime: parseTimeOfDay(prefs.getString(_keyRealtimeEndTime)),
     );
   }
 
@@ -49,14 +52,46 @@ class StockPoolConfigService {
     await prefs.setBool(_keyAutoUpdate, config.autoUpdate);
     await prefs.setInt(_keyUpdateInterval, config.updateInterval);
     await prefs.setBool(_keyEnableRealtimeInterface, config.enableRealtimeInterface);
+    if (config.realtimeEndTime != null) {
+      await prefs.setString(_keyRealtimeEndTime, '${config.realtimeEndTime!.hour.toString().padLeft(2, '0')}:${config.realtimeEndTime!.minute.toString().padLeft(2, '0')}');
+    } else {
+      await prefs.remove(_keyRealtimeEndTime);
+    }
     
     print('💾 配置服务保存完成');
+  }
+
+  // 解析时间字符串为TimeOfDay（公共方法，供fromJson使用）
+  static TimeOfDay? parseTimeOfDay(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) {
+      return null;
+    }
+    final parts = timeStr.split(':');
+    if (parts.length != 2) {
+      return null;
+    }
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    return TimeOfDay(hour: hour, minute: minute);
   }
 
   // 单独更新实时接口开关
   static Future<void> setRealtimeInterfaceEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnableRealtimeInterface, enabled);
+  }
+
+  // 单独更新实时接口截止时间
+  static Future<void> setRealtimeEndTime(TimeOfDay? endTime) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (endTime != null) {
+      await prefs.setString(_keyRealtimeEndTime, '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}');
+    } else {
+      await prefs.remove(_keyRealtimeEndTime);
+    }
   }
 
   // 重置为默认配置
@@ -93,6 +128,7 @@ class StockPoolConfig {
   final bool autoUpdate;
   final int updateInterval; // 小时
   final bool enableRealtimeInterface;
+  final TimeOfDay? realtimeEndTime; // 实时接口截止时间，默认16:30
 
   StockPoolConfig({
     this.enableMarketValueFilter = false,
@@ -103,6 +139,7 @@ class StockPoolConfig {
     this.autoUpdate = false,
     this.updateInterval = 24,
     this.enableRealtimeInterface = false,
+    this.realtimeEndTime,
   }) : selectedDate = selectedDate ?? DateTime.now();
 
   Map<String, dynamic> toJson() {
@@ -115,6 +152,7 @@ class StockPoolConfig {
       'autoUpdate': autoUpdate,
       'updateInterval': updateInterval,
       'enableRealtimeInterface': enableRealtimeInterface,
+      'realtimeEndTime': realtimeEndTime != null ? '${realtimeEndTime!.hour.toString().padLeft(2, '0')}:${realtimeEndTime!.minute.toString().padLeft(2, '0')}' : null,
     };
   }
 
@@ -128,6 +166,7 @@ class StockPoolConfig {
       autoUpdate: json['autoUpdate'] ?? false,
       updateInterval: json['updateInterval'] ?? 24,
       enableRealtimeInterface: json['enableRealtimeInterface'] ?? false,
+      realtimeEndTime: StockPoolConfigService.parseTimeOfDay(json['realtimeEndTime']),
     );
   }
 
@@ -140,6 +179,7 @@ class StockPoolConfig {
     bool? autoUpdate,
     int? updateInterval,
     bool? enableRealtimeInterface,
+    TimeOfDay? realtimeEndTime,
   }) {
     return StockPoolConfig(
       enableMarketValueFilter: enableMarketValueFilter ?? this.enableMarketValueFilter,
@@ -150,6 +190,7 @@ class StockPoolConfig {
       autoUpdate: autoUpdate ?? this.autoUpdate,
       updateInterval: updateInterval ?? this.updateInterval,
       enableRealtimeInterface: enableRealtimeInterface ?? this.enableRealtimeInterface,
+      realtimeEndTime: realtimeEndTime ?? this.realtimeEndTime,
     );
   }
 }
