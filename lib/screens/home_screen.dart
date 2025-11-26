@@ -318,6 +318,22 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text('股票'),
             const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _getMarketStatusColor(),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                _marketStatus,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             IconButton(
               icon: const Icon(Icons.filter_list, size: 20),
               onPressed: () {
@@ -460,52 +476,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 市场状态
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '市场状态',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _getMarketStatusColor(),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _marketStatus,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // 三个指数
-          Row(
-            children: _indices.map((index) {
-              final data = _indexData[index['code']!];
-              return Expanded(
-                child: _buildIndexItem(
-                  index['name']!,
-                  index['code']!,
-                  data,
-                ),
-              );
-            }).toList(),
-          ),
-        ],
+      child: Row(
+        children: _indices.map((index) {
+          final data = _indexData[index['code']!];
+          return Expanded(
+            child: _buildIndexItem(
+              index['name']!,
+              index['code']!,
+              data,
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -536,14 +517,15 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: Colors.grey[50],
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               name,
@@ -551,9 +533,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 fontSize: 12,
                 color: Colors.grey[600],
               ),
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             if (data != null) ...[
+              // 指数值着重显示
               Text(
                 data.close.toStringAsFixed(2),
                 style: TextStyle(
@@ -561,26 +545,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.bold,
                   color: priceColor,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 2),
-              Row(
-                children: [
-                  Text(
-                    '${data.change >= 0 ? "+" : ""}${data.change.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: priceColor,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${data.pctChg >= 0 ? "+" : ""}${data.pctChg.toStringAsFixed(2)}%',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: priceColor,
-                    ),
-                  ),
-                ],
+              // 涨跌幅作为主要显示，字体更大更突出
+              Text(
+                '${data.pctChg >= 0 ? "+" : ""}${data.pctChg.toStringAsFixed(2)}%',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: priceColor,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${data.change >= 0 ? "+" : ""}${data.change.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: priceColor,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ] else
               const Text(
