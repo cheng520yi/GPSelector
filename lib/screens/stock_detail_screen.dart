@@ -14,6 +14,72 @@ import '../services/blacklist_service.dart';
 import '../models/favorite_group.dart';
 import '../widgets/kline_chart_widget.dart';
 
+// 分组选择对话框组件
+class _GroupSelectionDialog extends StatefulWidget {
+  final List<FavoriteGroup> groups;
+  final Set<String> initialSelectedGroups;
+
+  const _GroupSelectionDialog({
+    required this.groups,
+    required this.initialSelectedGroups,
+  });
+
+  @override
+  State<_GroupSelectionDialog> createState() => _GroupSelectionDialogState();
+}
+
+class _GroupSelectionDialogState extends State<_GroupSelectionDialog> {
+  late Set<String> _selectedGroupIds;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedGroupIds = Set<String>.from(widget.initialSelectedGroups);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('选择分组'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: widget.groups.length,
+          itemBuilder: (context, index) {
+            final group = widget.groups[index];
+            final isSelected = _selectedGroupIds.contains(group.id);
+            
+            return CheckboxListTile(
+              title: Text(group.name),
+              value: isSelected,
+              onChanged: (value) {
+                setState(() {
+                  if (value == true) {
+                    _selectedGroupIds.add(group.id);
+                  } else {
+                    _selectedGroupIds.remove(group.id);
+                  }
+                });
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_selectedGroupIds),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
 class StockDetailScreen extends StatefulWidget {
   final StockInfo stockInfo;
   final KlineData? currentKlineData;
@@ -79,52 +145,13 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     
     if (!mounted) return;
     
+    // 使用一个状态类来保存选中的分组
     final selectedGroups = await showDialog<Set<String>>(
       context: context,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final selectedGroupIds = Set<String>.from(_stockGroups);
-            
-            return AlertDialog(
-              title: const Text('选择分组'),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: groups.length,
-                  itemBuilder: (context, index) {
-                    final group = groups[index];
-                    final isSelected = selectedGroupIds.contains(group.id);
-                    
-                    return CheckboxListTile(
-                      title: Text(group.name),
-                      value: isSelected,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          if (value == true) {
-                            selectedGroupIds.add(group.id);
-                          } else {
-                            selectedGroupIds.remove(group.id);
-                          }
-                        });
-                      },
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(null),
-                  child: const Text('取消'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(selectedGroupIds),
-                  child: const Text('确定'),
-                ),
-              ],
-            );
-          },
+        return _GroupSelectionDialog(
+          groups: groups,
+          initialSelectedGroups: Set<String>.from(_stockGroups),
         );
       },
     );
@@ -1076,8 +1103,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
             // 添加分组按钮
             IconButton(
               icon: Icon(
-                _stockGroups.isNotEmpty ? Icons.folder : Icons.folder_outlined,
-                color: _stockGroups.isNotEmpty ? Colors.blue : null,
+                _stockGroups.isNotEmpty ? Icons.check_circle : Icons.add_circle_outline,
+                color: _stockGroups.isNotEmpty ? Colors.green : null,
               ),
               onPressed: _showGroupSelectionDialog,
               tooltip: _stockGroups.isNotEmpty ? '管理分组' : '添加到分组',
