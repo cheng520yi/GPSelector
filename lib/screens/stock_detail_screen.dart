@@ -9,6 +9,9 @@ import '../models/macd_data.dart';
 import '../models/boll_data.dart';
 import '../services/stock_api_service.dart';
 import '../services/favorite_stock_service.dart';
+import '../services/favorite_group_service.dart';
+import '../services/blacklist_service.dart';
+import '../models/favorite_group.dart';
 import '../widgets/kline_chart_widget.dart';
 
 class StockDetailScreen extends StatefulWidget {
@@ -37,32 +40,156 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   KlineData? _selectedKlineData; // 选中的K线数据
   Map<String, double?>? _selectedMaValues; // 选中日期的均线值
   bool _isFavorite = false; // 是否已关注
+  bool _isInBlacklist = false; // 是否在黑名单中
+  List<String> _stockGroups = []; // 股票所在的分组列表
   double? _totalMarketValue; // 总市值（亿元）
   double? _circMarketValue; // 流通市值（亿元）
 
   @override
   void initState() {
     super.initState();
-    _checkFavoriteStatus();
+    _checkStatus();
     _initializeData();
   }
 
-  Future<void> _checkFavoriteStatus() async {
+  // 检查股票状态：是否已关注、是否在黑名单、所在分组
+  Future<void> _checkStatus() async {
     final isFavorite = await FavoriteStockService.isFavorite(widget.stockInfo.tsCode);
+    final isInBlacklist = await BlacklistService.isInBlacklist(widget.stockInfo.tsCode);
+    
+    // 获取股票所在的分组
+    final groups = await FavoriteGroupService.getAllGroups();
+    final stockGroups = <String>[];
+    for (final group in groups) {
+      if (group.stockCodes.contains(widget.stockInfo.tsCode)) {
+        stockGroups.add(group.id);
+      }
+    }
+    
     setState(() {
       _isFavorite = isFavorite;
+      _isInBlacklist = isInBlacklist;
+      _stockGroups = stockGroups;
     });
   }
 
-  Future<void> _toggleFavorite() async {
-    if (_isFavorite) {
-      await FavoriteStockService.removeFavorite(widget.stockInfo.tsCode);
-    } else {
-      await FavoriteStockService.addFavorite(widget.stockInfo);
+  // 显示分组选择对话框
+  Future<void> _showGroupSelectionDialog() async {
+    final groups = await FavoriteGroupService.getAllGroups();
+    
+    if (!mounted) return;
+    
+    final selectedGroups = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final selectedGroupIds = Set<String>.from(_stockGroups);
+            
+            return AlertDialog(
+              title: const Text('选择分组'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: groups.length,
+                  itemBuilder: (context, index) {
+                    final group = groups[index];
+                    final isSelected = selectedGroupIds.contains(group.id);
+                    
+                    return CheckboxListTile(
+                      title: Text(group.name),
+                      value: isSelected,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          if (value == true) {
+                            selectedGroupIds.add(group.id);
+                          } else {
+                            selectedGroupIds.remove(group.id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(null),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(selectedGroupIds),
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    
+    if (selectedGroups != null) {
+      // 更新分组
+      final allGroups = await FavoriteGroupService.getAllGroups();
+      
+      // 从所有分组中移除该股票
+      for (final group in allGroups) {
+        if (group.stockCodes.contains(widget.stockInfo.tsCode)) {
+          await FavoriteGroupService.removeStockFromGroup(group.id, widget.stockInfo.tsCode);
+        }
+      }
+      
+      // 添加到选中的分组
+      for (final groupId in selectedGroups) {
+        await FavoriteGroupService.addStockToGroup(groupId, widget.stockInfo.tsCode);
+      }
+      
+      // 确保股票已添加到关注列表
+      if (!_isFavorite) {
+        await FavoriteStockService.addFavorite(widget.stockInfo);
+      }
+      
+      // 刷新状态
+      await _checkStatus();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(selectedGroups.isEmpty 
+                ? '已从所有分组移除' 
+                : '已添加到 ${selectedGroups.length} 个分组'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     }
-    setState(() {
-      _isFavorite = !_isFavorite;
-    });
+  }
+
+  // 切换黑名单状态
+  Future<void> _toggleBlacklist() async {
+    if (_isInBlacklist) {
+      await BlacklistService.removeFromBlacklist(widget.stockInfo.tsCode);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已从黑名单移除 ${widget.stockInfo.name}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      await BlacklistService.addToBlacklist(widget.stockInfo.tsCode);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已添加 ${widget.stockInfo.name} 到黑名单'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+    await _checkStatus();
   }
 
   // 初始化数据：先加载设置，再加载K线数据和市值数据
@@ -935,14 +1062,27 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         title: Text(widget.stockInfo.name),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          IconButton(
-            icon: Icon(
-              _isFavorite ? Icons.star : Icons.star_border,
-              color: _isFavorite ? Colors.amber : null,
+          // 只有非指数股票才显示添加分组和黑名单功能
+          if (widget.stockInfo.industry != '指数') ...[
+            // 黑名单按钮
+            IconButton(
+              icon: Icon(
+                _isInBlacklist ? Icons.block : Icons.block_outlined,
+                color: _isInBlacklist ? Colors.orange : null,
+              ),
+              onPressed: _toggleBlacklist,
+              tooltip: _isInBlacklist ? '从黑名单移除' : '添加到黑名单',
             ),
-            onPressed: _toggleFavorite,
-            tooltip: _isFavorite ? '取消关注' : '关注',
-          ),
+            // 添加分组按钮
+            IconButton(
+              icon: Icon(
+                _stockGroups.isNotEmpty ? Icons.folder : Icons.folder_outlined,
+                color: _stockGroups.isNotEmpty ? Colors.blue : null,
+              ),
+              onPressed: _showGroupSelectionDialog,
+              tooltip: _stockGroups.isNotEmpty ? '管理分组' : '添加到分组',
+            ),
+          ],
         ],
       ),
       body: _isLoading
