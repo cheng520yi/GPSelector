@@ -554,9 +554,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (context) => const StockSelectorScreen(),
                   ),
-                ).then((_) {
-                  // 从筛选页面返回时，只刷新股票数据，不重新加载分组
-                  _loadStockData();
+                ).then((result) {
+                  // 如果创建了新分组，刷新分组列表和股票数据
+                  if (result == true) {
+                    _loadData();
+                  } else {
+                    // 从筛选页面返回时，只刷新股票数据，不重新加载分组
+                    _loadStockData();
+                  }
                 });
               },
               tooltip: '筛选',

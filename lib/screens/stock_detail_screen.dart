@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -1173,12 +1174,34 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      widget.stockInfo.name,
-                      style: const TextStyle(
-                        fontSize: 20, // 减小字体
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          widget.stockInfo.name,
+                          style: const TextStyle(
+                            fontSize: 20, // 减小字体
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: widget.stockInfo.name));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('已复制 "${widget.stockInfo.name}" 到剪贴板'),
+                                duration: const Duration(seconds: 1),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          },
+                          child: Icon(
+                            Icons.copy,
+                            size: 18,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 2), // 减小间距
                     Text(

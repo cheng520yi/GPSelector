@@ -282,6 +282,39 @@ class FavoriteGroupService {
     }
   }
 
+  // 批量添加股票到分组
+  static Future<bool> batchAddStocksToGroup(
+    String groupId,
+    List<StockInfo> stocks,
+  ) async {
+    try {
+      final groups = await getAllGroups();
+      final group = groups.firstWhere((g) => g.id == groupId);
+      
+      int addedCount = 0;
+      for (final stock in stocks) {
+        if (!group.stockCodes.contains(stock.tsCode)) {
+          group.stockCodes.add(stock.tsCode);
+          // 保存股票信息
+          await StockInfoService.saveStockInfo(stock);
+          addedCount++;
+        }
+      }
+      
+      if (addedCount > 0) {
+        await _saveGroups(groups);
+        print('✅ 批量添加完成: 成功添加 $addedCount 只股票到分组 "${group.name}"');
+      } else {
+        print('ℹ️ 所有股票已存在于分组 "${group.name}" 中');
+      }
+      
+      return true;
+    } catch (e) {
+      print('批量添加股票到分组失败: $e');
+      return false;
+    }
+  }
+
   // 切换置顶状态
   static Future<bool> togglePin(String groupId) async {
     try {

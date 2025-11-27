@@ -15,6 +15,9 @@ import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
 import 'stock_detail_screen.dart';
 import 'stock_search_screen.dart';
+import '../services/favorite_group_service.dart';
+import '../models/favorite_group.dart';
+import '../services/stock_info_service.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
@@ -35,6 +38,7 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
   int _totalStocks = 0; // 总股票数
   final ScrollController _scrollController = ScrollController(); // 滚动控制器
   bool _isDetailsExpanded = false; // 详细条件是否展开
+  bool _hasNewGroupCreated = false; // 是否创建了新分组
 
   @override
   void initState() {
@@ -191,11 +195,20 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('股票筛选器'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
+    return WillPopScope(
+      onWillPop: () async {
+        // 如果创建了新分组，返回true通知首页刷新分组列表
+        if (_hasNewGroupCreated) {
+          Navigator.of(context).pop(true);
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('股票筛选器'),
+          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+          actions: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -231,11 +244,19 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
                 },
                 tooltip: '股票池配置',
               ),
+              // 一键添加分组按钮（仅在有筛选结果时显示）
+              if (_stockRankings.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline),
+                  onPressed: _showBatchAddToGroupDialog,
+                  tooltip: '一键添加分组',
+                ),
             ],
           ),
         ],
       ),
       body: _buildFilterTab(),
+      ),
     );
   }
 
@@ -861,7 +882,231 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     }
   }
 
+  // 显示批量添加分组对话框
+  Future<void> _showBatchAddToGroupDialog() async {
+    if (_stockRankings.isEmpty) {
+      _showErrorDialog('没有可添加的股票');
+      return;
+    }
 
+    final groups = await FavoriteGroupService.getAllGroups();
+    final selectedGroup = await showDialog<FavoriteGroup?>(
+      context: context,
+      builder: (context) => _BatchAddToGroupDialog(
+        groups: groups,
+        stockCount: _stockRankings.length,
+      ),
+    );
 
+    if (selectedGroup != null && mounted) {
+      await _batchAddStocksToGroup(selectedGroup);
+    }
+  }
+
+  // 批量添加股票到分组
+  Future<void> _batchAddStocksToGroup(FavoriteGroup group) async {
+    try {
+      // 显示加载提示
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 提取所有股票信息
+      final stocks = _stockRankings.map((r) => r.stockInfo).toList();
+      
+      // 记录是否是新创建的分组（通过检查分组ID是否在现有分组列表中）
+      final existingGroups = await FavoriteGroupService.getAllGroups();
+      final isNewGroup = !existingGroups.any((g) => g.id == group.id);
+      
+      // 批量添加
+      final success = await FavoriteGroupService.batchAddStocksToGroup(
+        group.id,
+        stocks,
+      );
+
+      // 关闭加载提示
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (success && mounted) {
+        // 如果创建了新分组，标记标志
+        if (isNewGroup) {
+          setState(() {
+            _hasNewGroupCreated = true;
+          });
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('成功添加 ${stocks.length} 只股票到分组 "${group.name}"'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else if (mounted) {
+        _showErrorDialog('添加失败，请重试');
+      }
+    } catch (e) {
+      // 关闭加载提示
+      if (mounted) {
+        Navigator.of(context).pop();
+        _showErrorDialog('添加失败: $e');
+      }
+    }
+  }
+}
+
+// 批量添加分组对话框
+class _BatchAddToGroupDialog extends StatefulWidget {
+  final List<FavoriteGroup> groups;
+  final int stockCount;
+
+  const _BatchAddToGroupDialog({
+    required this.groups,
+    required this.stockCount,
+  });
+
+  @override
+  State<_BatchAddToGroupDialog> createState() => _BatchAddToGroupDialogState();
+}
+
+class _BatchAddToGroupDialogState extends State<_BatchAddToGroupDialog> {
+  final TextEditingController _newGroupNameController = TextEditingController();
+  bool _isCreatingNew = false;
+  String? _selectedGroupId;
+
+  @override
+  void dispose() {
+    _newGroupNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('添加 ${widget.stockCount} 只股票到分组'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 选择创建新分组或添加到现有分组
+              RadioListTile<bool>(
+                title: const Text('添加到现有分组'),
+                value: false,
+                groupValue: _isCreatingNew,
+                onChanged: (value) {
+                  setState(() {
+                    _isCreatingNew = false;
+                    _selectedGroupId = null;
+                  });
+                },
+              ),
+              RadioListTile<bool>(
+                title: const Text('创建新分组'),
+                value: true,
+                groupValue: _isCreatingNew,
+                onChanged: (value) {
+                  setState(() {
+                    _isCreatingNew = true;
+                    _selectedGroupId = null;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              
+              // 现有分组列表或新分组名称输入
+              if (_isCreatingNew)
+                TextField(
+                  controller: _newGroupNameController,
+                  decoration: const InputDecoration(
+                    labelText: '分组名称',
+                    hintText: '请输入分组名称',
+                    border: OutlineInputBorder(),
+                  ),
+                  autofocus: true,
+                )
+              else
+                ...widget.groups.map((group) {
+                  return RadioListTile<String>(
+                    title: Text(group.name),
+                    subtitle: Text('${group.stockCodes.length} 只股票'),
+                    value: group.id,
+                    groupValue: _selectedGroupId,
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedGroupId = value;
+                      });
+                    },
+                  );
+                }).toList(),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: _handleConfirm,
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleConfirm() async {
+    if (_isCreatingNew) {
+      // 创建新分组
+      final groupName = _newGroupNameController.text.trim();
+      if (groupName.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请输入分组名称')),
+          );
+        }
+        return;
+      }
+
+      final newGroup = await FavoriteGroupService.createGroup(name: groupName);
+      if (newGroup != null) {
+        if (mounted) {
+          Navigator.of(context).pop(newGroup);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('创建分组失败')),
+          );
+        }
+      }
+    } else {
+      // 添加到现有分组
+      if (_selectedGroupId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请选择一个分组')),
+          );
+        }
+        return;
+      }
+
+      final selectedGroup = widget.groups.firstWhere(
+        (g) => g.id == _selectedGroupId,
+      );
+      if (mounted) {
+        Navigator.of(context).pop(selectedGroup);
+      }
+    }
+  }
 }
 
