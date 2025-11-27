@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/favorite_group.dart';
-import '../services/favorite_stock_service.dart';
 import '../services/favorite_group_service.dart';
+import '../services/stock_info_service.dart';
 import '../services/stock_api_service.dart';
 import '../services/stock_pool_service.dart';
 import '../services/stock_pool_config_service.dart';
@@ -21,7 +21,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<FavoriteGroup> _groups = [];
-  String _selectedGroupId = 'default';
+  String _selectedGroupId = '';
+  String _loadingGroupId = ''; // 当前正在加载的分组ID，用于防止竞态条件
   List<StockInfo> _stocks = [];
   Map<String, KlineData> _stockData = {}; // 股票代码 -> K线数据
   Map<String, KlineData> _indexData = {}; // 指数代码 -> K线数据
@@ -95,10 +96,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final groups = await FavoriteGroupService.getAllGroups();
       setState(() {
         _groups = groups;
-        // 只有在初始化时（_selectedGroupId为'default'）才设置默认选中第一个
-        // 如果已经有选中的分组，检查该分组是否还存在，如果不存在才选择第一个
+        // 如果已经有选中的分组，检查该分组是否还存在
         if (_groups.isNotEmpty) {
-          if (_selectedGroupId == 'default') {
+          if (_selectedGroupId.isEmpty) {
             // 初始化时，选择第一个分组
             _selectedGroupId = _groups.first.id;
           } else {
@@ -110,6 +110,9 @@ class _HomeScreenState extends State<HomeScreen> {
             }
             // 如果当前选中的分组存在，保持选中状态不变
           }
+        } else {
+          // 如果没有分组，清空选中状态
+          _selectedGroupId = '';
         }
       });
 
@@ -209,17 +212,45 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadStockData() async {
+    // 如果没有选中分组，清空股票列表
+    if (_selectedGroupId.isEmpty) {
+      setState(() {
+        _stocks = [];
+        _stockData = {};
+        _loadingGroupId = '';
+      });
+      return;
+    }
+    
+    // 记录当前正在加载的分组ID，用于防止竞态条件
+    final currentLoadingGroupId = _selectedGroupId;
+    setState(() {
+      _loadingGroupId = currentLoadingGroupId;
+    });
+    
     // 获取当前分组中的股票代码
     final stockCodes = await FavoriteGroupService.getGroupStockCodes(_selectedGroupId);
     
-    // 获取股票信息
-    final allFavorites = await FavoriteStockService.getFavoriteStocks();
-    final stocks = allFavorites.where((s) => stockCodes.contains(s.tsCode)).toList();
+    // 检查分组是否已经切换
+    if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+      print('⚠️ 分组已切换，取消加载数据 (请求分组: $currentLoadingGroupId, 当前分组: $_selectedGroupId)');
+      return;
+    }
+    
+    // 根据股票代码获取股票信息
+    final stocks = await StockInfoService.getStockInfosByCodes(stockCodes);
+    
+    // 再次检查分组是否已经切换
+    if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+      print('⚠️ 分组已切换，取消加载数据 (请求分组: $currentLoadingGroupId, 当前分组: $_selectedGroupId)');
+      return;
+    }
 
     if (stocks.isEmpty) {
       setState(() {
         _stocks = [];
         _stockData = {};
+        _loadingGroupId = '';
       });
       return;
     }
@@ -250,10 +281,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (shouldUseRealTime && stocks.length <= 50) {
       // 如果股票数量较少，尝试批量获取实时数据
       try {
+        // 检查分组是否已经切换
+        if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+          print('⚠️ 分组已切换，取消批量获取实时数据');
+          return;
+        }
+        
         final tsCodes = stocks.map((s) => s.tsCode).toList();
         final realTimeData = await StockApiService.getIFinDRealTimeData(
           tsCodes: tsCodes,
         );
+        
+        // 再次检查分组是否已经切换
+        if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+          print('⚠️ 分组已切换，取消使用批量实时数据');
+          return;
+        }
+        
         stockDataMap.addAll(realTimeData);
       } catch (e) {
         print('批量获取实时数据失败: $e');
@@ -262,6 +306,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 并行获取缺失的股票数据
     final futures = stocks.map((stock) async {
+      // 在每次异步操作前检查分组是否已切换
+      if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+        return MapEntry(stock.tsCode, null as KlineData?);
+      }
+      
       if (stockDataMap.containsKey(stock.tsCode)) {
         return MapEntry(stock.tsCode, stockDataMap[stock.tsCode]!);
       }
@@ -271,9 +320,20 @@ class _HomeScreenState extends State<HomeScreen> {
         if (shouldUseRealTime && !stockDataMap.containsKey(stock.tsCode)) {
           // 尝试获取实时数据
           try {
+            // 检查分组是否已经切换
+            if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+              return MapEntry(stock.tsCode, null as KlineData?);
+            }
+            
             final realTimeData = await StockApiService.getIFinDRealTimeData(
               tsCodes: [stock.tsCode],
             );
+            
+            // 再次检查分组是否已经切换
+            if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+              return MapEntry(stock.tsCode, null as KlineData?);
+            }
+            
             if (realTimeData.containsKey(stock.tsCode)) {
               data = realTimeData[stock.tsCode];
             }
@@ -284,9 +344,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // 如果实时数据获取失败，使用历史数据
         if (data == null) {
+          // 检查分组是否已经切换
+          if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+            return MapEntry(stock.tsCode, null as KlineData?);
+          }
+          
           data = await StockApiService.getLatestTradingDayData(
             tsCode: stock.tsCode,
           );
+          
+          // 再次检查分组是否已经切换
+          if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+            return MapEntry(stock.tsCode, null as KlineData?);
+          }
         }
 
         return MapEntry(stock.tsCode, data);
@@ -299,6 +369,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // 等待所有数据加载完成
     final results = await Future.wait(futures);
     
+    // 检查分组是否已经切换（在所有异步操作完成后）
+    if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+      print('⚠️ 分组已切换，取消更新数据 (请求分组: $currentLoadingGroupId, 当前分组: $_selectedGroupId)');
+      return;
+    }
+    
     // 合并结果
     for (final entry in results) {
       if (entry.value != null) {
@@ -306,12 +382,28 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // 再次检查分组是否已经切换（在获取数据后）
+    if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+      print('⚠️ 分组已切换，取消更新数据 (请求分组: $currentLoadingGroupId, 当前分组: $_selectedGroupId)');
+      return;
+    }
+    
     // 检查并补充缺失的总市值数据
-    final stocksWithMarketValue = await _supplementMarketValueData(stocks);
+    final stocksWithMarketValue = await _supplementMarketValueData(
+      stocks,
+      currentLoadingGroupId: currentLoadingGroupId,
+    );
+    
+    // 最后一次检查分组是否已经切换（在补充市值数据后）
+    if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+      print('⚠️ 分组已切换，取消更新数据 (请求分组: $currentLoadingGroupId, 当前分组: $_selectedGroupId)');
+      return;
+    }
 
     setState(() {
       _stocks = stocksWithMarketValue;
       _stockData = stockDataMap;
+      _loadingGroupId = '';
     });
 
     // 应用排序
@@ -319,7 +411,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 补充缺失的总市值数据
-  Future<List<StockInfo>> _supplementMarketValueData(List<StockInfo> stocks) async {
+  Future<List<StockInfo>> _supplementMarketValueData(
+    List<StockInfo> stocks, {
+    String? currentLoadingGroupId,
+  }) async {
+    // 如果提供了分组ID，检查分组是否已切换
+    if (currentLoadingGroupId != null) {
+      if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+        print('⚠️ 分组已切换，取消补充市值数据');
+        return stocks;
+      }
+    }
+    
     // 找出没有总市值的股票
     final stocksWithoutMarketValue = stocks.where((s) => s.totalMarketValue == null || s.totalMarketValue == 0).toList();
     
@@ -328,6 +431,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
+      // 再次检查分组是否已切换（在获取市值数据前）
+      if (currentLoadingGroupId != null) {
+        if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+          print('⚠️ 分组已切换，取消补充市值数据');
+          return stocks;
+        }
+      }
+      
       final tsCodes = stocksWithoutMarketValue.map((s) => s.tsCode).toList();
       print('📊 发现 ${tsCodes.length} 只股票缺少总市值，开始补充...');
       
@@ -336,6 +447,14 @@ class _HomeScreenState extends State<HomeScreen> {
         tsCodes: tsCodes,
         targetDate: null, // 获取最新数据
       );
+
+      // 再次检查分组是否已切换（在获取市值数据后）
+      if (currentLoadingGroupId != null) {
+        if (!mounted || _selectedGroupId != currentLoadingGroupId) {
+          print('⚠️ 分组已切换，取消使用市值数据');
+          return stocks;
+        }
+      }
 
       print('✅ 成功获取 ${marketValueMap.length} 只股票的总市值数据');
 
@@ -481,49 +600,52 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (context) => const FavoriteGroupEditScreen(),
                   ),
                 ).then((_) {
-                  // 从分组管理页面返回时，只刷新股票数据，不重新加载分组，保持当前选中状态
-                  _loadStockData();
+                  // 从分组管理页面返回时，重新加载分组列表和股票数据
+                  // _loadData() 中已经有逻辑处理分组被删除的情况
+                  _loadData();
                 });
               }
             },
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Container(
-            height: 48,
-            color: Colors.white,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _groups.length,
-              itemBuilder: (context, index) {
-                final group = _groups[index];
-                final isSelected = group.id == _selectedGroupId;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ChoiceChip(
-                    label: Text(group.name),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedGroupId = group.id;
-                        });
-                        _loadStockData();
-                      }
+        bottom: _groups.isEmpty
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(48),
+                child: Container(
+                  height: 48,
+                  color: Colors.white,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    itemCount: _groups.length,
+                    itemBuilder: (context, index) {
+                      final group = _groups[index];
+                      final isSelected = group.id == _selectedGroupId;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          label: Text(group.name),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                _selectedGroupId = group.id;
+                              });
+                              _loadStockData();
+                            }
+                          },
+                          selectedColor: Colors.red,
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.black,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      );
                     },
-                    selectedColor: Colors.red,
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : Colors.black,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
                   ),
-                );
-              },
-            ),
-          ),
-        ),
+                ),
+              ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -861,8 +983,9 @@ class _HomeScreenState extends State<HomeScreen> {
               currentKlineData: data,
             ),
           ),
-        ).then((_) {
+        ).then((result) {
           // 从详情页返回时，只刷新股票数据，不重新加载分组，保持当前选中状态
+          // 如果分组有变化，刷新股票数据
           _loadStockData();
         });
       },

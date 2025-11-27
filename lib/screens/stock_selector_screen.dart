@@ -10,7 +10,6 @@ import '../services/blacklist_service.dart';
 import '../services/condition_combination_service.dart';
 import '../services/stock_filter_service.dart';
 import '../services/log_service.dart';
-import '../services/favorite_stock_service.dart';
 import '../services/stock_api_service.dart';
 import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
@@ -24,15 +23,8 @@ class StockSelectorScreen extends StatefulWidget {
   State<StockSelectorScreen> createState() => _StockSelectorScreenState();
 }
 
-class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  
-  // Tab1: 关注股票列表
-  List<StockInfo> _favoriteStocks = [];
-  Map<String, KlineData> _favoriteKlineData = {}; // 股票代码 -> 最新K线数据
-  bool _isLoadingFavorites = false;
-  
-  // Tab2: 筛选页面（原有功能）
+class _StockSelectorScreenState extends State<StockSelectorScreen> {
+  // 筛选页面（原有功能）
   List<StockRanking> _stockRankings = [];
   bool _isLoading = false;
   List<ConditionCombination> _combinations = [];
@@ -47,21 +39,12 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.index == 0) {
-        // 切换到关注列表时，刷新数据
-        _loadFavoriteStocks();
-      }
-    });
     _updatePoolInfo();
     _loadCombinations();
-    _loadFavoriteStocks();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -73,49 +56,6 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
     });
   }
 
-  Future<void> _loadFavoriteStocks() async {
-    setState(() {
-      _isLoadingFavorites = true;
-    });
-    
-    try {
-      final favorites = await FavoriteStockService.getFavoriteStocks();
-      setState(() {
-        _favoriteStocks = favorites;
-      });
-      
-      // 获取每个关注股票的最新K线数据
-      if (favorites.isNotEmpty) {
-        await _loadFavoriteKlineData(favorites);
-      }
-    } catch (e) {
-      print('加载关注股票失败: $e');
-    } finally {
-      setState(() {
-        _isLoadingFavorites = false;
-      });
-    }
-  }
-
-  Future<void> _loadFavoriteKlineData(List<StockInfo> stocks) async {
-    final Map<String, KlineData> klineDataMap = {};
-    
-    for (final stock in stocks) {
-      try {
-        // 获取最新交易日的K线数据
-        final klineData = await StockApiService.getLatestTradingDayData(tsCode: stock.tsCode);
-        if (klineData != null) {
-          klineDataMap[stock.tsCode] = klineData;
-        }
-      } catch (e) {
-        print('获取 ${stock.name} 的K线数据失败: $e');
-      }
-    }
-    
-    setState(() {
-      _favoriteKlineData = klineDataMap;
-    });
-  }
 
   Future<void> _loadCombinations() async {
     try {
@@ -255,230 +195,47 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
       appBar: AppBar(
         title: const Text('股票筛选器'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: '关注'),
-            Tab(text: '筛选'),
-          ],
-        ),
         actions: [
-          // 使用AnimatedBuilder来根据当前tab动态显示按钮
-          AnimatedBuilder(
-            animation: _tabController,
-            builder: (context, child) {
-              if (_tabController.index == 0) {
-                // Tab1: 关注列表 - 显示搜索按钮
-                return IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const StockSearchScreen(),
-                      ),
-                    ).then((_) {
-                      // 从搜索页面返回后，刷新关注列表
-                      _loadFavoriteStocks();
-                    });
-                  },
-                  tooltip: '搜索股票',
-                );
-              } else {
-                // Tab2: 筛选页面 - 显示其他按钮
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.filter_list),
-                      onPressed: () async {
-                        final result = await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const ConditionManagementScreen(),
-                          ),
-                        );
-                        
-                        // 如果从条件管理页面返回，刷新条件组合列表
-                        if (result == true) {
-                          await _loadCombinations();
-                        }
-                      },
-                      tooltip: '条件组合管理',
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.filter_list),
+                onPressed: () async {
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const ConditionManagementScreen(),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.settings),
-                      onPressed: () async {
-                        final result = await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const StockPoolConfigScreen(),
-                          ),
-                        );
-                        
-                        // 如果从配置页面返回时带有更新标志，刷新股票池信息
-                        if (result == true) {
-                          await _updatePoolInfo();
-                        }
-                      },
-                      tooltip: '股票池配置',
+                  );
+                  
+                  // 如果从条件管理页面返回，刷新条件组合列表
+                  if (result == true) {
+                    await _loadCombinations();
+                  }
+                },
+                tooltip: '条件组合管理',
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () async {
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const StockPoolConfigScreen(),
                     ),
-                  ],
-                );
-              }
-            },
+                  );
+                  
+                  // 如果从配置页面返回时带有更新标志，刷新股票池信息
+                  if (result == true) {
+                    await _updatePoolInfo();
+                  }
+                },
+                tooltip: '股票池配置',
+              ),
+            ],
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // Tab1: 关注股票列表
-          _buildFavoriteListTab(),
-          // Tab2: 筛选页面（原有功能）
-          _buildFilterTab(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFavoriteListTab() {
-    if (_isLoadingFavorites) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_favoriteStocks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.star_border,
-              size: 64,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '暂无关注的股票',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '在股票详情页面点击关注按钮添加',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadFavoriteStocks,
-      child: ListView.builder(
-        itemCount: _favoriteStocks.length,
-        itemBuilder: (context, index) {
-          final stock = _favoriteStocks[index];
-          final klineData = _favoriteKlineData[stock.tsCode];
-          return _buildFavoriteStockItem(stock, klineData);
-        },
-      ),
-    );
-  }
-
-  Widget _buildFavoriteStockItem(StockInfo stock, KlineData? klineData) {
-    final isRising = klineData != null && klineData.close >= (klineData.preClose);
-    final priceColor = isRising ? Colors.red : Colors.green;
-    
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-        child: Text(
-          stock.symbol.isNotEmpty ? stock.symbol[0] : stock.name[0],
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
-          ),
-        ),
-      ),
-      title: Text(
-        stock.name,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('${stock.tsCode} ${stock.industry.isNotEmpty ? "· ${stock.industry}" : ""}'),
-          if (klineData != null) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Text(
-                  '${klineData.close.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    color: priceColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${klineData.pctChg >= 0 ? "+" : ""}${klineData.pctChg.toStringAsFixed(2)}%',
-                  style: TextStyle(
-                    color: priceColor,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${klineData.change >= 0 ? "+" : ""}${klineData.change.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    color: priceColor,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '成交量: ${(klineData.vol / 10000).toStringAsFixed(2)}万手 | 成交额: ${klineData.amountInYi.toStringAsFixed(2)}亿元',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
-            Text(
-              '日期: ${klineData.tradeDate}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[500],
-              ),
-            ),
-          ] else
-            const Text(
-              '暂无数据',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
-              ),
-            ),
-        ],
-      ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => StockDetailScreen(
-              stockInfo: stock,
-              currentKlineData: klineData,
-            ),
-          ),
-        ).then((_) {
-          // 从详情页面返回后，刷新关注列表
-          _loadFavoriteStocks();
-        });
-      },
+      body: _buildFilterTab(),
     );
   }
 
@@ -1107,3 +864,4 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> with SingleTi
 
 
 }
+

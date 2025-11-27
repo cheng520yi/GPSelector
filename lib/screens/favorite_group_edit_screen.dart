@@ -94,13 +94,6 @@ class _FavoriteGroupEditScreenState extends State<FavoriteGroupEditScreen> {
   }
 
   Future<void> _deleteGroup(FavoriteGroup group) async {
-    if (group.id == 'default') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('不能删除默认分组')),
-      );
-      return;
-    }
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -346,14 +339,11 @@ class _FavoriteGroupEditScreenState extends State<FavoriteGroupEditScreen> {
       child: Row(
         children: [
           // 删除按钮
-          if (group.id != 'default')
-            IconButton(
-              icon: const Icon(Icons.remove_circle, color: Colors.red),
-              onPressed: () => _deleteGroup(group),
-              iconSize: 24,
-            )
-          else
-            const SizedBox(width: 40),
+          IconButton(
+            icon: const Icon(Icons.remove_circle, color: Colors.red),
+            onPressed: () => _deleteGroup(group),
+            iconSize: 24,
+          ),
           // 分组名称
           Expanded(
             child: Text(

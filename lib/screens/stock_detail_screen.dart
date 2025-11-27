@@ -8,8 +8,8 @@ import '../models/kline_data.dart';
 import '../models/macd_data.dart';
 import '../models/boll_data.dart';
 import '../services/stock_api_service.dart';
-import '../services/favorite_stock_service.dart';
 import '../services/favorite_group_service.dart';
+import '../services/stock_info_service.dart';
 import '../services/blacklist_service.dart';
 import '../models/favorite_group.dart';
 import '../widgets/kline_chart_widget.dart';
@@ -105,7 +105,6 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   String _selectedChartType = 'daily'; // 默认选择日K，可选：daily(日K), weekly(周K), monthly(月K)
   KlineData? _selectedKlineData; // 选中的K线数据
   Map<String, double?>? _selectedMaValues; // 选中日期的均线值
-  bool _isFavorite = false; // 是否已关注
   bool _isInBlacklist = false; // 是否在黑名单中
   List<String> _stockGroups = []; // 股票所在的分组列表
   double? _totalMarketValue; // 总市值（亿元）
@@ -118,9 +117,8 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     _initializeData();
   }
 
-  // 检查股票状态：是否已关注、是否在黑名单、所在分组
+  // 检查股票状态：是否在黑名单、所在分组
   Future<void> _checkStatus() async {
-    final isFavorite = await FavoriteStockService.isFavorite(widget.stockInfo.tsCode);
     final isInBlacklist = await BlacklistService.isInBlacklist(widget.stockInfo.tsCode);
     
     // 获取股票所在的分组
@@ -133,7 +131,6 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     }
     
     setState(() {
-      _isFavorite = isFavorite;
       _isInBlacklist = isInBlacklist;
       _stockGroups = stockGroups;
     });
@@ -157,25 +154,12 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
     );
     
     if (selectedGroups != null) {
-      // 更新分组
-      final allGroups = await FavoriteGroupService.getAllGroups();
-      
-      // 从所有分组中移除该股票
-      for (final group in allGroups) {
-        if (group.stockCodes.contains(widget.stockInfo.tsCode)) {
-          await FavoriteGroupService.removeStockFromGroup(group.id, widget.stockInfo.tsCode);
-        }
-      }
-      
-      // 添加到选中的分组
-      for (final groupId in selectedGroups) {
-        await FavoriteGroupService.addStockToGroup(groupId, widget.stockInfo.tsCode);
-      }
-      
-      // 确保股票已添加到关注列表
-      if (!_isFavorite) {
-        await FavoriteStockService.addFavorite(widget.stockInfo);
-      }
+      // 使用批量更新方法，确保数据一致性
+      await FavoriteGroupService.updateStockGroups(
+        widget.stockInfo.tsCode,
+        selectedGroups.toList(),
+        stockInfo: widget.stockInfo,
+      );
       
       // 刷新状态
       await _checkStatus();
