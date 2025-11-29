@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../services/stock_api_service.dart';
+import '../services/stock_pool_config_service.dart';
 
 class StockPredictionScreen extends StatefulWidget {
   final StockInfo stockInfo;
@@ -168,7 +169,7 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
           : _kLineType;
 
       // 获取K线数据
-      final klineDataList = await StockApiService.getKlineData(
+      List<KlineData> klineDataList = await StockApiService.getKlineData(
         tsCode: tsCode,
         kLineType: actualApiName,
         days: daysToFetch,
@@ -184,8 +185,133 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       }
 
       // 按日期排序
-      final sortedData = List<KlineData>.from(klineDataList)
+      List<KlineData> sortedData = List<KlineData>.from(klineDataList)
         ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+
+      // 判断是否应该使用实时接口（适用于所有K线类型）
+      final now = DateTime.now();
+      final config = await StockPoolConfigService.getConfig();
+      final currentTime = now.hour * 100 + now.minute;
+      
+      bool shouldUseRealTime = false;
+      String interfaceReason = '';
+      
+      if (StockApiService.isTradingDay(now) && currentTime >= 930) {
+        if (config.enableRealtimeInterface) {
+          // 开关打开时，检查是否在配置的时间窗口内
+          final endTime = config.realtimeEndTime ?? const TimeOfDay(hour: 24, minute: 0);
+          final endTimeMinutes = endTime.hour * 100 + endTime.minute;
+          if (currentTime <= endTimeMinutes) {
+            shouldUseRealTime = true;
+            interfaceReason = 'iFinD实时接口（交易日 ${currentTime >= 930 ? '9:30' : ''}-${endTime.hour}:${endTime.minute.toString().padLeft(2, '0')}）';
+          } else {
+            interfaceReason = 'Tushare接口（超出实时接口时间窗口 ${endTime.hour}:${endTime.minute.toString().padLeft(2, '0')}）';
+          }
+        } else {
+          // 开关关闭时，9:30-24:00都使用iFinD接口
+          shouldUseRealTime = true;
+          interfaceReason = 'iFinD实时接口（开关关闭，9:30-24:00）';
+        }
+      } else {
+        if (!StockApiService.isTradingDay(now)) {
+          interfaceReason = 'Tushare接口（非交易日）';
+        } else if (currentTime < 930) {
+          interfaceReason = 'Tushare接口（未到交易时间 9:30）';
+        } else {
+          interfaceReason = 'Tushare接口（不在交易时间窗口内）';
+        }
+      }
+
+      print('📊 预测分析页面 - ${_kLineType}K: 使用${interfaceReason}');
+
+      // 对于所有K线类型，尝试获取实时数据
+      KlineData? realTimeData;
+      if (shouldUseRealTime) {
+        try {
+          print('🔍 预测分析页面 - ${_kLineType}K: 尝试使用iFinD实时接口获取数据...');
+          // 对于周K和月K，获取实时日K数据；对于日K，获取实时日K数据
+          final realTimeDataMap = await StockApiService.getIFinDRealTimeData(
+            tsCodes: [tsCode],
+          );
+          if (realTimeDataMap.containsKey(tsCode)) {
+            realTimeData = realTimeDataMap[tsCode];
+            print('✅ 预测分析页面 - ${_kLineType}K: iFinD实时接口获取成功，日期=${realTimeData!.tradeDate}, 收盘价=${realTimeData!.close}');
+          } else {
+            print('⚠️ 预测分析页面 - ${_kLineType}K: iFinD实时接口返回数据为空，将尝试Tushare接口');
+          }
+        } catch (e) {
+          print('❌ 预测分析页面 - ${_kLineType}K: iFinD实时接口获取失败: $e，将尝试Tushare接口');
+        }
+      }
+
+      // 如果没有获取到实时数据，尝试使用Tushare获取最新交易日数据
+      if (realTimeData == null) {
+        try {
+          print('🔍 预测分析页面 - ${_kLineType}K: 尝试使用Tushare接口获取最新交易日数据...');
+          final latestData = await StockApiService.getLatestTradingDayData(
+            tsCode: tsCode,
+          );
+          if (latestData != null) {
+            realTimeData = latestData;
+            print('✅ 预测分析页面 - ${_kLineType}K: Tushare接口获取成功，日期=${realTimeData!.tradeDate}, 收盘价=${realTimeData!.close}');
+          } else {
+            print('⚠️ 预测分析页面 - ${_kLineType}K: Tushare接口返回数据为空');
+          }
+        } catch (e) {
+          print('❌ 预测分析页面 - ${_kLineType}K: Tushare接口获取失败: $e');
+        }
+      }
+
+      // 如果获取到实时数据，更新sortedData
+      if (realTimeData != null) {
+        // 对于周K和月K，需要判断实时数据是否属于当前周/月
+        bool shouldUseRealTimeData = true;
+        
+        if (_kLineType == 'weekly' || _kLineType == 'monthly') {
+          final realTimeDate = DateTime.parse(
+            '${realTimeData.tradeDate.substring(0,4)}-'
+            '${realTimeData.tradeDate.substring(4,6)}-'
+            '${realTimeData.tradeDate.substring(6,8)}'
+          );
+          
+          if (_kLineType == 'weekly') {
+            // 检查实时数据是否属于当前周
+            final daysFromMonday = now.weekday - 1;
+            final currentWeekStart = now.subtract(Duration(days: daysFromMonday));
+            final realTimeWeekStart = realTimeDate.subtract(Duration(days: realTimeDate.weekday - 1));
+            
+            if (realTimeWeekStart.year != currentWeekStart.year ||
+                realTimeWeekStart.month != currentWeekStart.month ||
+                realTimeWeekStart.day != currentWeekStart.day) {
+              shouldUseRealTimeData = false;
+              print('⚠️ 周K: 实时数据不属于当前周，不使用实时数据');
+            }
+          } else if (_kLineType == 'monthly') {
+            // 检查实时数据是否属于当前月
+            if (realTimeDate.year != now.year || realTimeDate.month != now.month) {
+              shouldUseRealTimeData = false;
+              print('⚠️ 月K: 实时数据不属于当前月，不使用实时数据');
+            }
+          }
+        }
+
+        if (shouldUseRealTimeData) {
+          // 检查sortedData中是否已有该日期的数据，如果有则替换，否则添加
+          final existingIndex = sortedData.indexWhere(
+            (data) => data.tradeDate == realTimeData!.tradeDate
+          );
+          
+          if (existingIndex >= 0) {
+            sortedData[existingIndex] = realTimeData!;
+            print('✅ ${_kLineType}K: 替换历史数据中的实时数据');
+          } else {
+            sortedData.add(realTimeData!);
+            sortedData.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+            print('✅ ${_kLineType}K: 添加实时数据到历史数据');
+          }
+        }
+      }
+
 
       // 提取收盘价
       final closes = sortedData.map((e) => e.close).toList();
