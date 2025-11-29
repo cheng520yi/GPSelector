@@ -9,11 +9,8 @@ import '../models/kline_data.dart';
 import 'batch_optimizer.dart';
 import 'stock_pool_config_service.dart';
 import 'stock_api_service.dart';
-import 'stock_api_service.dart';
 
 class StockPoolService {
-  static const String baseUrl = 'http://api.tushare.pro';
-  static const String token = 'ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce';
   static const double defaultPoolThreshold = 5.0; // 默认成交额阈值（亿元）
   static double _currentThreshold = defaultPoolThreshold;
   
@@ -132,103 +129,88 @@ class StockPoolService {
       // 将多个股票代码用逗号分隔
       final String tsCodesString = tsCodes.join(',');
 
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily",
-        "token": token,
-        "params": {
+      print('📡 批量请求单日数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
+
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily",
+        params: {
           "ts_code": tsCodesString,
           "start_date": formattedStartDate,
           "end_date": formattedEndDate
         },
-        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
-      };
-
-      print('📡 批量请求单日数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
-
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          // 静默处理批量响应
+          
+          // 按股票代码分组数据
+          Map<String, KlineData> result = {};
+          
+          if (targetDate != null) {
+            // 如果指定了目标日期，为每个股票找到最接近目标日期的数据
+            final targetDateStr = DateFormat('yyyyMMdd').format(targetDate);
             
-            // 静默处理批量响应
-            
-            // 按股票代码分组数据
-            Map<String, KlineData> result = {};
-            
-            if (targetDate != null) {
-              // 如果指定了目标日期，为每个股票找到最接近目标日期的数据
-              final targetDateStr = DateFormat('yyyyMMdd').format(targetDate);
-              
-              for (var item in items) {
-                Map<String, dynamic> itemMap = {};
-                for (int i = 0; i < fields.length && i < item.length; i++) {
-                  itemMap[fields[i]] = item[i];
-                }
-                
-                try {
-                  final klineData = KlineData.fromJson(itemMap);
-                  final tsCode = klineData.tsCode;
-                  
-                  if (!result.containsKey(tsCode)) {
-                    result[tsCode] = klineData;
-                  } else {
-                    // 比较哪个数据更接近目标日期
-                    final currentTradeDate = result[tsCode]!.tradeDate;
-                    final newTradeDate = klineData.tradeDate;
-                    
-                    final currentDaysDiff = DateTime.parse('${targetDateStr.substring(0,4)}-${targetDateStr.substring(4,6)}-${targetDateStr.substring(6,8)}')
-                        .difference(DateTime.parse('${currentTradeDate.substring(0,4)}-${currentTradeDate.substring(4,6)}-${currentTradeDate.substring(6,8)}')).inDays.abs();
-                    final newDaysDiff = DateTime.parse('${targetDateStr.substring(0,4)}-${targetDateStr.substring(4,6)}-${targetDateStr.substring(6,8)}')
-                        .difference(DateTime.parse('${newTradeDate.substring(0,4)}-${newTradeDate.substring(4,6)}-${newTradeDate.substring(6,8)}')).inDays.abs();
-                    
-                    if (newDaysDiff < currentDaysDiff) {
-                      result[tsCode] = klineData;
-                    }
-                  }
-                } catch (e) {
-                  // 静默处理解析错误
-                }
+            for (var item in items) {
+              Map<String, dynamic> itemMap = {};
+              for (int i = 0; i < fields.length && i < item.length; i++) {
+                itemMap[fields[i]] = item[i];
               }
-            } else {
-              // 如果没有指定目标日期，取最新的数据
-              for (var item in items) {
-                Map<String, dynamic> itemMap = {};
-                for (int i = 0; i < fields.length && i < item.length; i++) {
-                  itemMap[fields[i]] = item[i];
-                }
+              
+              try {
+                final klineData = KlineData.fromJson(itemMap);
+                final tsCode = klineData.tsCode;
                 
-                try {
-                  final klineData = KlineData.fromJson(itemMap);
-                  final tsCode = klineData.tsCode;
+                if (!result.containsKey(tsCode)) {
+                  result[tsCode] = klineData;
+                } else {
+                  // 比较哪个数据更接近目标日期
+                  final currentTradeDate = result[tsCode]!.tradeDate;
+                  final newTradeDate = klineData.tradeDate;
                   
-                  // 如果该股票还没有数据，或者当前数据更新，则更新
-                  if (!result.containsKey(tsCode) || 
-                      klineData.tradeDate.compareTo(result[tsCode]!.tradeDate) > 0) {
+                  final currentDaysDiff = DateTime.parse('${targetDateStr.substring(0,4)}-${targetDateStr.substring(4,6)}-${targetDateStr.substring(6,8)}')
+                      .difference(DateTime.parse('${currentTradeDate.substring(0,4)}-${currentTradeDate.substring(4,6)}-${currentTradeDate.substring(6,8)}')).inDays.abs();
+                  final newDaysDiff = DateTime.parse('${targetDateStr.substring(0,4)}-${targetDateStr.substring(4,6)}-${targetDateStr.substring(6,8)}')
+                      .difference(DateTime.parse('${newTradeDate.substring(0,4)}-${newTradeDate.substring(4,6)}-${newTradeDate.substring(6,8)}')).inDays.abs();
+                  
+                  if (newDaysDiff < currentDaysDiff) {
                     result[tsCode] = klineData;
                   }
-                } catch (e) {
-                  // 静默处理解析错误
                 }
+              } catch (e) {
+                // 静默处理解析错误
               }
             }
-            
-            return result;
           } else {
-            return {};
+            // 如果没有指定目标日期，取最新的数据
+            for (var item in items) {
+              Map<String, dynamic> itemMap = {};
+              for (int i = 0; i < fields.length && i < item.length; i++) {
+                itemMap[fields[i]] = item[i];
+              }
+              
+              try {
+                final klineData = KlineData.fromJson(itemMap);
+                final tsCode = klineData.tsCode;
+                
+                // 如果该股票还没有数据，或者当前数据更新，则更新
+                if (!result.containsKey(tsCode) || 
+                    klineData.tradeDate.compareTo(result[tsCode]!.tradeDate) > 0) {
+                  result[tsCode] = klineData;
+                }
+              } catch (e) {
+                // 静默处理解析错误
+              }
+            }
           }
+          
+          return result;
         } else {
           return {};
         }
@@ -262,80 +244,67 @@ class StockPoolService {
       final String formattedStartDate = DateFormat('yyyyMMdd').format(startDate);
       final String formattedEndDate = DateFormat('yyyyMMdd').format(endDate);
 
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily",
-        "token": token,
-        "params": {
+      // 静默处理单个股票K线数据请求
+
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily",
+        params: {
           "ts_code": tsCode,
           "start_date": formattedStartDate,
           "end_date": formattedEndDate
         },
-        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
-      };
-
-      // 静默处理单个股票K线数据请求
-
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
-            
-            if (items.isNotEmpty) {
-              if (targetDate != null) {
-                // 如果指定了目标日期，找到最接近的交易日数据
-                final targetDateStr = DateFormat('yyyyMMdd').format(targetDate);
-                String? closestTradeDate;
-                dynamic closestItem;
-                int minDaysDiff = 999;
-                
-                for (final item in items) {
-                  final tradeDateStr = item[fields.indexOf('trade_date')]?.toString() ?? '';
-                  if (tradeDateStr.isNotEmpty) {
-                    final tradeDate = DateTime.parse('${tradeDateStr.substring(0,4)}-${tradeDateStr.substring(4,6)}-${tradeDateStr.substring(6,8)}');
-                    final daysDiff = targetDate.difference(tradeDate).inDays.abs();
-                    if (daysDiff < minDaysDiff) {
-                      minDaysDiff = daysDiff;
-                      closestTradeDate = tradeDateStr;
-                      closestItem = item;
-                    }
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          if (items.isNotEmpty) {
+            if (targetDate != null) {
+              // 如果指定了目标日期，找到最接近的交易日数据
+              final targetDateStr = DateFormat('yyyyMMdd').format(targetDate);
+              String? closestTradeDate;
+              dynamic closestItem;
+              int minDaysDiff = 999;
+              
+              for (final item in items) {
+                final tradeDateStr = item[fields.indexOf('trade_date')]?.toString() ?? '';
+                if (tradeDateStr.isNotEmpty) {
+                  final tradeDate = DateTime.parse('${tradeDateStr.substring(0,4)}-${tradeDateStr.substring(4,6)}-${tradeDateStr.substring(6,8)}');
+                  final daysDiff = targetDate.difference(tradeDate).inDays.abs();
+                  if (daysDiff < minDaysDiff) {
+                    minDaysDiff = daysDiff;
+                    closestTradeDate = tradeDateStr;
+                    closestItem = item;
                   }
                 }
-                
-                if (closestItem != null) {
-                  Map<String, dynamic> itemMap = {};
-                  for (int i = 0; i < fields.length && i < closestItem.length; i++) {
-                    itemMap[fields[i]] = closestItem[i];
-                  }
-                  return KlineData.fromJson(itemMap);
-                }
-              } else {
-                // 默认取最新的交易日数据（按交易日期排序，取最新的）
-                items.sort((a, b) {
-                  final tradeDateA = a[fields.indexOf('trade_date')]?.toString() ?? '';
-                  final tradeDateB = b[fields.indexOf('trade_date')]?.toString() ?? '';
-                  return tradeDateB.compareTo(tradeDateA); // 降序排列，最新的在前
-                });
-                
-                final item = items.first;
+              }
+              
+              if (closestItem != null) {
                 Map<String, dynamic> itemMap = {};
-                for (int i = 0; i < fields.length && i < item.length; i++) {
-                  itemMap[fields[i]] = item[i];
+                for (int i = 0; i < fields.length && i < closestItem.length; i++) {
+                  itemMap[fields[i]] = closestItem[i];
                 }
                 return KlineData.fromJson(itemMap);
               }
+            } else {
+              // 默认取最新的交易日数据（按交易日期排序，取最新的）
+              items.sort((a, b) {
+                final tradeDateA = a[fields.indexOf('trade_date')]?.toString() ?? '';
+                final tradeDateB = b[fields.indexOf('trade_date')]?.toString() ?? '';
+                return tradeDateB.compareTo(tradeDateA); // 降序排列，最新的在前
+              });
+              
+              final item = items.first;
+              Map<String, dynamic> itemMap = {};
+              for (int i = 0; i < fields.length && i < item.length; i++) {
+                itemMap[fields[i]] = item[i];
+              }
+              return KlineData.fromJson(itemMap);
             }
           }
         }
@@ -460,33 +429,18 @@ class StockPoolService {
     int offset = 0;
     
     while (true) {
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily_basic",
-        "token": token,
-        "params": {
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily_basic",
+        params: {
           "trade_date": tradeDateStr,
           "limit": pageSize,
           "offset": offset,
         },
-        "fields": "ts_code,total_mv",
-      };
-      
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,total_mv",
       );
       
-      if (response.statusCode != 200) {
-        print('❌ trade_date=$tradeDateStr 市值请求失败: HTTP ${response.statusCode}');
-        return {};
-      }
-      
-      final Map<String, dynamic> responseData = json.decode(response.body);
-      if (responseData['code'] != 0) {
-        print('❌ trade_date=$tradeDateStr 市值请求返回错误: ${responseData['code']} - ${responseData['msg']}');
+      if (responseData == null) {
+        print('❌ trade_date=$tradeDateStr 市值请求失败');
         return {};
       }
       
@@ -554,101 +508,74 @@ class StockPoolService {
       // 将多个股票代码用逗号分隔
       final String tsCodesString = tsCodes.join(',');
 
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily_basic",
-        "token": token,
-        "params": {
+      print('📡 批量请求总市值数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
+      print('📡 请求的股票代码: $tsCodesString');
+
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily_basic",
+        params: {
           "ts_code": tsCodesString,
           "start_date": formattedStartDate,
           "end_date": formattedEndDate
         },
-        "fields": "ts_code,trade_date,total_mv"
-      };
-
-      print('📡 批量请求总市值数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
-      print('📡 请求的股票代码: $tsCodesString');
-      print('📡 请求参数: ${json.encode(requestData)}');
-
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,total_mv",
       );
 
-      print('📡 HTTP响应状态码: ${response.statusCode}');
-      print('📡 HTTP响应体: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        print('📡 API返回code: ${responseData['code']}, msg: ${responseData['msg']}');
-        
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          print('📊 批量总市值响应: 获取到 ${items.length} 条数据');
+          print('📊 返回的字段: $fields');
+          
+          // 按股票代码分组数据，每个股票取最新的数据
+          Map<String, double> result = {};
+          
+          for (var item in items) {
+            Map<String, dynamic> itemMap = {};
+            for (int i = 0; i < fields.length && i < item.length; i++) {
+              itemMap[fields[i]] = item[i];
+            }
             
-            print('📊 批量总市值响应: 获取到 ${items.length} 条数据');
-            print('📊 返回的字段: $fields');
-            
-            // 按股票代码分组数据，每个股票取最新的数据
-            Map<String, double> result = {};
-            
-            for (var item in items) {
-              Map<String, dynamic> itemMap = {};
-              for (int i = 0; i < fields.length && i < item.length; i++) {
-                itemMap[fields[i]] = item[i];
-              }
+            try {
+              final tsCode = itemMap['ts_code']?.toString() ?? '';
+              final totalMv = itemMap['total_mv']?.toDouble() ?? 0.0;
               
-              try {
-                final tsCode = itemMap['ts_code']?.toString() ?? '';
-                final totalMv = itemMap['total_mv']?.toDouble() ?? 0.0;
+              if (tsCode.isNotEmpty && totalMv > 0) {
+                // 将万元转换为亿元
+                final totalMvInYi = totalMv / 10000.0;
                 
-                if (tsCode.isNotEmpty && totalMv > 0) {
-                  // 将万元转换为亿元
-                  final totalMvInYi = totalMv / 10000.0;
-                  
-                  // 如果该股票还没有数据，或者当前数据更新，则更新
-                  if (!result.containsKey(tsCode) || 
-                      (itemMap['trade_date']?.toString() ?? '').compareTo(
-                        items.firstWhere((i) => i[fields.indexOf('ts_code')] == tsCode, orElse: () => [])[fields.indexOf('trade_date')]?.toString() ?? ''
-                      ) > 0) {
-                    result[tsCode] = totalMvInYi;
-                  }
+                // 如果该股票还没有数据，或者当前数据更新，则更新
+                if (!result.containsKey(tsCode) || 
+                    (itemMap['trade_date']?.toString() ?? '').compareTo(
+                      items.firstWhere((i) => i[fields.indexOf('ts_code')] == tsCode, orElse: () => [])[fields.indexOf('trade_date')]?.toString() ?? ''
+                    ) > 0) {
+                  result[tsCode] = totalMvInYi;
                 }
-              } catch (e) {
-                print('解析总市值数据项失败: $e, 数据: $itemMap');
               }
+            } catch (e) {
+              print('解析总市值数据项失败: $e, 数据: $itemMap');
             }
-            
-            // 如果TuShare返回空数据，尝试使用iFind接口作为备选
-            if (result.isEmpty && items.isEmpty) {
-              print('⚠️ TuShare返回空数据，尝试使用iFind接口获取总市值...');
-              final iFindResult = await _getMarketValueFromIFinD(tsCodes);
-              if (iFindResult.isNotEmpty) {
-                print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
-                return iFindResult;
-              } else {
-                print('⚠️ iFind接口也未能获取到数据');
-              }
-            }
-            
-            return result;
-          } else {
-            print('❌ API返回data为null，尝试使用iFind接口...');
+          }
+          
+          // 如果TuShare返回空数据，尝试使用iFind接口作为备选
+          if (result.isEmpty && items.isEmpty) {
+            print('⚠️ TuShare返回空数据，尝试使用iFind接口获取总市值...');
             final iFindResult = await _getMarketValueFromIFinD(tsCodes);
             if (iFindResult.isNotEmpty) {
               print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
               return iFindResult;
+            } else {
+              print('⚠️ iFind接口也未能获取到数据');
             }
-            return {};
           }
+          
+          return result;
         } else {
-          print('❌ API返回错误: ${responseData['msg']}，尝试使用iFind接口...');
+          print('❌ API返回data为null，尝试使用iFind接口...');
           final iFindResult = await _getMarketValueFromIFinD(tsCodes);
           if (iFindResult.isNotEmpty) {
             print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
@@ -657,7 +584,7 @@ class StockPoolService {
           return {};
         }
       } else {
-        print('❌ HTTP请求失败: ${response.statusCode}，尝试使用iFind接口...');
+        print('❌ API请求失败，尝试使用iFind接口...');
         final iFindResult = await _getMarketValueFromIFinD(tsCodes);
         if (iFindResult.isNotEmpty) {
           print('✅ iFind接口成功获取 ${iFindResult.length} 只股票的总市值数据');
@@ -1198,58 +1125,45 @@ class StockPoolService {
       final String formattedStartDate = DateFormat('yyyyMMdd').format(startDate);
       final String formattedEndDate = DateFormat('yyyyMMdd').format(endDate);
 
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily",
-        "token": token,
-        "params": {
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily",
+        params: {
           "ts_code": tsCode,
           "start_date": formattedStartDate,
           "end_date": formattedEndDate
         },
-        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
-      };
-
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
-            
-            List<KlineData> klineDataList = [];
-            
-            for (var item in items) {
-              Map<String, dynamic> itemMap = {};
-              for (int i = 0; i < fields.length && i < item.length; i++) {
-                itemMap[fields[i]] = item[i];
-              }
-              try {
-                klineDataList.add(KlineData.fromJson(itemMap));
-              } catch (e) {
-                print('解析历史K线数据项失败: $e, 数据: $itemMap');
-              }
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          List<KlineData> klineDataList = [];
+          
+          for (var item in items) {
+            Map<String, dynamic> itemMap = {};
+            for (int i = 0; i < fields.length && i < item.length; i++) {
+              itemMap[fields[i]] = item[i];
             }
-            
-            // 按交易日期排序（从早到晚，与其他方法保持一致）
-            klineDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
-            return klineDataList;
+            try {
+              klineDataList.add(KlineData.fromJson(itemMap));
+            } catch (e) {
+              print('解析历史K线数据项失败: $e, 数据: $itemMap');
+            }
           }
+          
+          // 按交易日期排序（从早到晚，与其他方法保持一致）
+          klineDataList.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+          return klineDataList;
         } else {
-          print('获取历史K线数据API返回错误: ${responseData['msg']}');
+          print('获取历史K线数据API返回data为null');
         }
       } else {
-        print('获取历史K线数据HTTP请求失败: ${response.statusCode}');
+        print('获取历史K线数据API请求失败');
       }
     } catch (e) {
       print('获取历史K线数据失败: $e');
@@ -1346,77 +1260,61 @@ class StockPoolService {
       // 将多个股票代码用逗号分隔
       final String tsCodesString = tsCodes.join(',');
 
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily",
-        "token": token,
-        "params": {
+      print('📡 批量请求历史数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
+
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily",
+        params: {
           "ts_code": tsCodesString,
           "start_date": formattedStartDate,
           "end_date": formattedEndDate
         },
-        "fields": "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount"
-      };
-
-      print('📡 批量请求历史数据: ${tsCodes.length}只股票，日期范围: $formattedStartDate - $formattedEndDate');
-
-      final response = await http.post(
-        Uri.parse(baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          print('📊 批量历史数据响应: 获取到 ${items.length} 条数据');
+          
+          // 按股票代码分组数据
+          Map<String, List<KlineData>> result = {};
+          
+          for (var item in items) {
+            Map<String, dynamic> itemMap = {};
+            for (int i = 0; i < fields.length && i < item.length; i++) {
+              itemMap[fields[i]] = item[i];
+            }
             
-            print('📊 批量历史数据响应: 获取到 ${items.length} 条数据');
-            
-            // 按股票代码分组数据
-            Map<String, List<KlineData>> result = {};
-            
-            for (var item in items) {
-              Map<String, dynamic> itemMap = {};
-              for (int i = 0; i < fields.length && i < item.length; i++) {
-                itemMap[fields[i]] = item[i];
-              }
+            try {
+              final klineData = KlineData.fromJson(itemMap);
+              final tsCode = klineData.tsCode;
               
-              try {
-                final klineData = KlineData.fromJson(itemMap);
-                final tsCode = klineData.tsCode;
-                
-                if (!result.containsKey(tsCode)) {
-                  result[tsCode] = [];
-                }
-                result[tsCode]!.add(klineData);
-              } catch (e) {
-                print('解析历史K线数据项失败: $e, 数据: $itemMap');
+              if (!result.containsKey(tsCode)) {
+                result[tsCode] = [];
               }
+              result[tsCode]!.add(klineData);
+            } catch (e) {
+              print('解析历史K线数据项失败: $e, 数据: $itemMap');
             }
-            
-            // 对每个股票的数据按时间排序
-            for (String tsCode in result.keys) {
-              result[tsCode]!.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
-            }
-            
-            return result;
-          } else {
-            print('API返回数据为空');
-            return {};
           }
+          
+          // 对每个股票的数据按时间排序
+          for (String tsCode in result.keys) {
+            result[tsCode]!.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+          }
+          
+          return result;
         } else {
-          print('API返回错误: ${responseData['msg']}');
+          print('API返回数据为空');
           return {};
         }
       } else {
-        print('HTTP请求失败: ${response.statusCode}');
+        print('API请求失败');
         return {};
       }
     } catch (e) {

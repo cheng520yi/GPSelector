@@ -433,50 +433,40 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
   Future<void> _loadMarketValueDataForDate(String tradeDate) async {
     try {
       // 使用 daily_basic 接口获取指定日期的市值数据
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily_basic",
-        "token": "ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce",
-        "params": {
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily_basic",
+        params: {
           "ts_code": widget.stockInfo.tsCode,
           "trade_date": tradeDate,
         },
-        "fields": "ts_code,trade_date,total_mv,circ_mv",
-      };
-      
-      final response = await http.post(
-        Uri.parse('http://api.tushare.pro'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,total_mv,circ_mv",
       );
       
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          if (items.isNotEmpty) {
+            final int totalMvIndex = fields.indexOf('total_mv');
+            final int circMvIndex = fields.indexOf('circ_mv');
             
-            if (items.isNotEmpty) {
-              final int totalMvIndex = fields.indexOf('total_mv');
-              final int circMvIndex = fields.indexOf('circ_mv');
-              
-              if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
-                final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
-                // TuShare 返回单位为万元，转换为亿元
-                setState(() {
-                  _totalMarketValue = totalMv / 10000.0;
-                });
-              }
-              
-              if (circMvIndex >= 0 && circMvIndex < items[0].length) {
-                final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
-                // TuShare 返回单位为万元，转换为亿元
-                setState(() {
-                  _circMarketValue = circMv / 10000.0;
-                });
-              }
+            if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
+              final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
+              // TuShare 返回单位为万元，转换为亿元
+              setState(() {
+                _totalMarketValue = totalMv / 10000.0;
+              });
+            }
+            
+            if (circMvIndex >= 0 && circMvIndex < items[0].length) {
+              final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
+              // TuShare 返回单位为万元，转换为亿元
+              setState(() {
+                _circMarketValue = circMv / 10000.0;
+              });
             }
           }
         }
@@ -501,50 +491,40 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       final tradeDateStr = DateFormat('yyyyMMdd').format(today);
       
       // 使用 daily_basic 接口获取市值数据
-      final Map<String, dynamic> requestData = {
-        "api_name": "daily_basic",
-        "token": "ddff564aabaeee65ad88faf07073d3ba40d62c657d0b1850f47834ce",
-        "params": {
+      final responseData = await StockApiService.callTushareApi(
+        apiName: "daily_basic",
+        params: {
           "ts_code": widget.stockInfo.tsCode,
           "trade_date": tradeDateStr,
         },
-        "fields": "ts_code,trade_date,total_mv,circ_mv",
-      };
-      
-      final response = await http.post(
-        Uri.parse('http://api.tushare.pro'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(requestData),
+        fields: "ts_code,trade_date,total_mv,circ_mv",
       );
       
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        if (responseData['code'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final List<dynamic> items = data['items'] ?? [];
-            final List<dynamic> fieldsData = data['fields'] ?? [];
-            final List<String> fields = fieldsData.cast<String>();
+      if (responseData != null) {
+        final data = responseData['data'];
+        if (data != null) {
+          final List<dynamic> items = data['items'] ?? [];
+          final List<dynamic> fieldsData = data['fields'] ?? [];
+          final List<String> fields = fieldsData.cast<String>();
+          
+          if (items.isNotEmpty) {
+            final int totalMvIndex = fields.indexOf('total_mv');
+            final int circMvIndex = fields.indexOf('circ_mv');
             
-            if (items.isNotEmpty) {
-              final int totalMvIndex = fields.indexOf('total_mv');
-              final int circMvIndex = fields.indexOf('circ_mv');
-              
-              if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
-                final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
-                // TuShare 返回单位为万元，转换为亿元
-                setState(() {
-                  _totalMarketValue = totalMv / 10000.0;
-                });
-              }
-              
-              if (circMvIndex >= 0 && circMvIndex < items[0].length) {
-                final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
-                // TuShare 返回单位为万元，转换为亿元
-                setState(() {
-                  _circMarketValue = circMv / 10000.0;
-                });
-              }
+            if (totalMvIndex >= 0 && totalMvIndex < items[0].length) {
+              final totalMv = double.tryParse(items[0][totalMvIndex]?.toString() ?? '0') ?? 0.0;
+              // TuShare 返回单位为万元，转换为亿元
+              setState(() {
+                _totalMarketValue = totalMv / 10000.0;
+              });
+            }
+            
+            if (circMvIndex >= 0 && circMvIndex < items[0].length) {
+              final circMv = double.tryParse(items[0][circMvIndex]?.toString() ?? '0') ?? 0.0;
+              // TuShare 返回单位为万元，转换为亿元
+              setState(() {
+                _circMarketValue = circMv / 10000.0;
+              });
             }
           }
         }

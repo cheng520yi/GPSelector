@@ -249,6 +249,51 @@ class StockApiService {
     return selectedDate;
   }
 
+  /// 统一的Tushare API调用方法
+  /// [apiName] API名称，如 "daily", "daily_basic" 等
+  /// [params] 请求参数
+  /// [fields] 需要返回的字段，多个字段用逗号分隔
+  /// 返回API响应的原始数据，如果失败返回null
+  static Future<Map<String, dynamic>?> callTushareApi({
+    required String apiName,
+    required Map<String, dynamic> params,
+    required String fields,
+  }) async {
+    try {
+      final Map<String, dynamic> requestData = {
+        "api_name": apiName,
+        "token": token,
+        "params": params,
+        "fields": fields,
+      };
+
+      final response = await http.post(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+        
+        if (responseData['code'] == 0) {
+          return responseData;
+        } else {
+          print('❌ Tushare API返回错误: ${responseData['code']} - ${responseData['msg']}');
+          return null;
+        }
+      } else {
+        print('❌ Tushare API HTTP请求失败: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Tushare API调用异常: $e');
+      return null;
+    }
+  }
+
   // 获取单个股票的实时K线数据（使用iFinD接口）
   static Future<KlineData?> getSingleStockRealTimeData({
     required String tsCode,
