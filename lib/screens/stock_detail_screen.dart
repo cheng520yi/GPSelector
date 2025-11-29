@@ -345,8 +345,92 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       final sortedBollData = bollDataList.toList()
         ..sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
 
-      // 根据K线类型决定是否获取实时数据
+      // 获取当前时间，用于后续处理
       final now = DateTime.now();
+
+      // 对于周K，检查是否包含当前周的数据，如果不包含，从日K数据中计算
+      if (_selectedChartType == 'weekly') {
+        final daysFromMonday = now.weekday - 1; // 0=Monday, 6=Sunday
+        final currentWeekStart = now.subtract(Duration(days: daysFromMonday));
+        
+        // 检查返回的周K数据是否包含当前周
+        bool hasCurrentWeek = false;
+        if (sortedData.isNotEmpty) {
+          for (final data in sortedData) {
+            final dataDate = DateTime.parse(
+              '${data.tradeDate.substring(0,4)}-${data.tradeDate.substring(4,6)}-${data.tradeDate.substring(6,8)}'
+            );
+            final dataWeekStart = dataDate.subtract(Duration(days: dataDate.weekday - 1));
+            
+            // 如果数据所在周的开始日期与当前周开始日期相同，说明包含当前周
+            if (dataWeekStart.year == currentWeekStart.year &&
+                dataWeekStart.month == currentWeekStart.month &&
+                dataWeekStart.day == currentWeekStart.day) {
+              hasCurrentWeek = true;
+              break;
+            }
+          }
+        }
+        
+        // 如果不包含当前周，从日K数据中计算当前周的周K数据
+        if (!hasCurrentWeek) {
+          print('📊 周K: 返回的数据不包含当前周，从日K数据中计算当前周的周K数据...');
+          try {
+            // 获取当前周的日K数据
+            final weekDailyData = await _getDailyDataForPeriod(
+              tsCode: widget.stockInfo.tsCode,
+              startDate: currentWeekStart,
+              endDate: now,
+            );
+            
+            if (weekDailyData.isNotEmpty) {
+              // 计算当前周的周K数据
+              final firstDayData = weekDailyData.first;
+              final lastDayData = weekDailyData.last;
+              final weekHigh = weekDailyData.map((e) => e.high).reduce((a, b) => a > b ? a : b);
+              final weekLow = weekDailyData.map((e) => e.low).reduce((a, b) => a < b ? a : b);
+              final weekVol = weekDailyData.map((e) => e.vol).fold(0.0, (sum, vol) => sum + vol);
+              final weekAmount = weekDailyData.map((e) => e.amount).fold(0.0, (sum, amount) => sum + amount);
+              
+              // 查找上周最后一条数据，用于获取preClose
+              double preClose = 0.0;
+              if (sortedData.isNotEmpty) {
+                final lastData = sortedData.last;
+                preClose = lastData.close;
+              }
+              
+              final weekFirstDay = DateFormat('yyyyMMdd').format(currentWeekStart);
+              final currentWeekKlineData = KlineData(
+                tsCode: widget.stockInfo.tsCode,
+                tradeDate: weekFirstDay,
+                open: firstDayData.open,
+                high: weekHigh,
+                low: weekLow,
+                close: lastDayData.close,
+                preClose: preClose,
+                change: lastDayData.close - firstDayData.open,
+                pctChg: firstDayData.open > 0 
+                    ? ((lastDayData.close - firstDayData.open) / firstDayData.open * 100)
+                    : 0.0,
+                vol: weekVol,
+                amount: weekAmount,
+              );
+              
+              sortedData.add(currentWeekKlineData);
+              sortedData.sort((a, b) => a.tradeDate.compareTo(b.tradeDate));
+              print('✅ 周K: 成功从日K数据计算当前周的周K数据，日期=$weekFirstDay, 成交量=$weekVol');
+            } else {
+              print('⚠️ 周K: 无法获取当前周的日K数据');
+            }
+          } catch (e) {
+            print('❌ 周K: 计算当前周数据失败: $e');
+          }
+        } else {
+          print('✅ 周K: 返回的数据已包含当前周');
+        }
+      }
+
+      // 根据K线类型决定是否获取实时数据
       KlineData? latestData;
       
       if (_selectedChartType == 'monthly') {
