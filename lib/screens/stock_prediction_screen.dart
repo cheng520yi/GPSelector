@@ -317,54 +317,87 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       final closes = sortedData.map((e) => e.close).toList();
       final dates = sortedData.map((e) => e.tradeDate).toList();
 
-      // 处理周K和月K数据分组
-      List<double> displayCloses = List.from(closes);
-      List<String> displayDates = List.from(dates);
-
-      if (_kLineType == 'weekly' || _kLineType == 'monthly') {
-        final grouped = _groupDailyToPeriods(
-          closes,
-          dates,
-          _kLineType,
-          sortedData.length - 1,
-        );
-        displayCloses = List.from(grouped['periodCloses'] as List<double>);
-        displayDates = List.from(grouped['periodDates'] as List<String>);
-      }
-
-      // 如果启用手动输入，将手动价格添加到数据末尾
+      // 对于周K和月K，如果启用手动输入，需要先将手动输入添加到日K数据，然后再分组
+      // 对于日K，手动输入直接添加到数据末尾
       double? manualPrice;
+      List<double> displayCloses;
+      List<String> displayDates;
+      
       if (_useManualInput && _manualPriceController.text.isNotEmpty) {
         manualPrice = double.tryParse(_manualPriceController.text);
         if (manualPrice != null && manualPrice > 0) {
-          // 计算下一个交易日
-          // displayDates可能是yyyyMMdd格式或yyyy-MM-dd格式
-          String lastDateStr = displayDates.last;
-          DateTime lastDate;
-          if (lastDateStr.length == 8) {
-            // yyyyMMdd格式
-            lastDate = DateTime.parse(
-              '${lastDateStr.substring(0, 4)}-'
-              '${lastDateStr.substring(4, 6)}-'
-              '${lastDateStr.substring(6, 8)}',
+          if (_kLineType == 'weekly' || _kLineType == 'monthly') {
+            // 周K和月K：先将手动输入添加到日K数据，然后分组
+            // 计算下一个交易日
+            String lastDateStr = dates.last;
+            DateTime lastDate;
+            if (lastDateStr.length == 8) {
+              lastDate = DateTime.parse(
+                '${lastDateStr.substring(0, 4)}-'
+                '${lastDateStr.substring(4, 6)}-'
+                '${lastDateStr.substring(6, 8)}',
+              );
+            } else {
+              lastDate = DateTime.parse(lastDateStr);
+            }
+            final nextDate = _getNextTradingDay(lastDate);
+            final nextDateStr = DateFormat('yyyy-MM-dd').format(nextDate);
+            
+            // 将手动输入添加到日K数据
+            final closesWithManual = List<double>.from(closes)..add(manualPrice);
+            final datesWithManual = List<String>.from(dates)..add(nextDateStr);
+            
+            // 对包含手动输入的日K数据进行分组
+            final grouped = _groupDailyToPeriods(
+              closesWithManual,
+              datesWithManual,
+              _kLineType,
+              closesWithManual.length - 1, // 包含手动输入后的总长度
             );
+            displayCloses = List.from(grouped['periodCloses'] as List<double>);
+            displayDates = List.from(grouped['periodDates'] as List<String>);
           } else {
-            // yyyy-MM-dd格式
-            lastDate = DateTime.parse(lastDateStr);
+            // 日K：直接添加到数据末尾
+            displayCloses = List.from(closes)..add(manualPrice);
+            displayDates = List.from(dates);
+            String lastDateStr = dates.last;
+            DateTime lastDate;
+            if (lastDateStr.length == 8) {
+              lastDate = DateTime.parse(
+                '${lastDateStr.substring(0, 4)}-'
+                '${lastDateStr.substring(4, 6)}-'
+                '${lastDateStr.substring(6, 8)}',
+              );
+            } else {
+              lastDate = DateTime.parse(lastDateStr);
+            }
+            final nextDate = _getNextTradingDay(lastDate);
+            final nextDateStr = DateFormat('yyyy-MM-dd').format(nextDate);
+            displayDates.add(nextDateStr);
           }
-          final nextDate = _getNextTradingDay(lastDate);
-          final nextDateStr = DateFormat('yyyy-MM-dd').format(nextDate);
-          
-          // 将手动输入的价格作为新一天的收盘价添加到数组末尾
-          displayCloses.add(manualPrice);
-          // 保持日期格式一致（使用yyyy-MM-dd格式）
-          displayDates.add(nextDateStr);
         } else {
           setState(() {
             _errorMessage = '请输入有效的价格';
             _isLoading = false;
           });
           return;
+        }
+      } else {
+        // 没有手动输入
+        if (_kLineType == 'weekly' || _kLineType == 'monthly') {
+          // 对日K数据进行分组
+          final grouped = _groupDailyToPeriods(
+            closes,
+            dates,
+            _kLineType,
+            sortedData.length - 1,
+          );
+          displayCloses = List.from(grouped['periodCloses'] as List<double>);
+          displayDates = List.from(grouped['periodDates'] as List<String>);
+        } else {
+          // 日K：直接使用
+          displayCloses = List.from(closes);
+          displayDates = List.from(dates);
         }
       }
 
@@ -377,6 +410,19 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
           displayCloses.length - 10,
         );
         
+        // 打印计算过程（手动输入情况下）
+        if (_useManualInput && _kLineType == 'monthly') {
+          print('📊 月K手动输入计算过程：');
+          print('   最后10个${_kLineType == 'monthly' ? '月' : _kLineType == 'weekly' ? '周' : '日'}K收盘价（从旧到新）：');
+          for (int i = 0; i < last10Closes.length; i++) {
+            final dateIndex = displayDates.length - 10 + i;
+            final dateStr = dateIndex >= 0 && dateIndex < displayDates.length 
+                ? displayDates[dateIndex] 
+                : '未知';
+            print('   [${i}] ${dateStr}: ${last10Closes[i].toStringAsFixed(4)}');
+          }
+        }
+        
         // D1是最后一天（如果启用手动输入，就是手动输入的价格）
         D1 = last10Closes[9];
         // D5是倒数第6天（原来的D1变成了D2，D2变成D3...）
@@ -384,12 +430,56 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
         // D10是倒数第10天
         D10 = last10Closes[0];
         
-        // C5 - 最近5个交易日收盘价的平均值（包括手动输入的价格）
-        final c5Data = last10Closes.sublist(5);
+        if (_useManualInput && _kLineType == 'monthly') {
+          final d1Date = displayDates.length >= 10 ? displayDates[displayDates.length - 1] : '未知';
+          final d5Date = displayDates.length >= 10 ? displayDates[displayDates.length - 6] : '未知';
+          final d10Date = displayDates.length >= 10 ? displayDates[displayDates.length - 10] : '未知';
+          print('   D1 (最后一个月) = ${D1.toStringAsFixed(4)} (日期: $d1Date)');
+          print('   D5 (倒数第6个月) = ${D5.toStringAsFixed(4)} (日期: $d5Date)');
+          print('   D10 (倒数第10个月) = ${D10.toStringAsFixed(4)} (日期: $d10Date)');
+        }
+        
+        // C5 - 最近5个周期收盘价的平均值（包括手动输入的价格）
+        // 注意：对于月K，这是最后5个月的平均值；对于周K，这是最后5周的平均值；对于日K，这是最后5日的平均值
+        final c5Data = last10Closes.sublist(5); // 索引5-9，共5个数据
         C5 = c5Data.fold(0.0, (a, b) => a + b) / c5Data.length;
         
-        // C10 - 最近10个交易日收盘价的平均值（包括手动输入的价格）
+        if (_useManualInput && _kLineType == 'monthly') {
+          print('   C5计算过程：');
+          print('   用于计算C5的数据（最后5个月，索引5-9）：');
+          double sum = 0.0;
+          for (int i = 5; i < last10Closes.length; i++) {
+            final dateIndex = displayDates.length - 10 + i;
+            final dateStr = dateIndex >= 0 && dateIndex < displayDates.length 
+                ? displayDates[dateIndex] 
+                : '未知';
+            final value = last10Closes[i];
+            sum += value;
+            print('     [${i}] ${dateStr}: ${value.toStringAsFixed(4)}');
+          }
+          print('   总和 = ${sum.toStringAsFixed(4)}');
+          print('   平均值 C5 = ${sum.toStringAsFixed(4)} / ${c5Data.length} = ${C5.toStringAsFixed(4)}');
+        }
+        
+        // C10 - 最近10个周期收盘价的平均值（包括手动输入的价格）
         C10 = last10Closes.fold(0.0, (a, b) => a + b) / last10Closes.length;
+        
+        if (_useManualInput && _kLineType == 'monthly') {
+          print('   C10计算过程：');
+          print('   用于计算C10的数据（最后10个月，索引0-9）：');
+          double sum10 = 0.0;
+          for (int i = 0; i < last10Closes.length; i++) {
+            final dateIndex = displayDates.length - 10 + i;
+            final dateStr = dateIndex >= 0 && dateIndex < displayDates.length 
+                ? displayDates[dateIndex] 
+                : '未知';
+            final value = last10Closes[i];
+            sum10 += value;
+            print('     [${i}] ${dateStr}: ${value.toStringAsFixed(4)}');
+          }
+          print('   总和 = ${sum10.toStringAsFixed(4)}');
+          print('   平均值 C10 = ${sum10.toStringAsFixed(4)} / ${last10Closes.length} = ${C10.toStringAsFixed(4)}');
+        }
       } else {
         setState(() {
           _errorMessage = '数据不足，无法计算指标';
@@ -405,6 +495,36 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       final M10 = (D1 - D10) / 10 + C10;
       final QW = D1 + (D1 - M5) * 5;
       final FW = M5 + 0.1 * D1 / 5;
+
+      // 打印其他指标的计算过程（手动输入情况下，月K）
+      if (_useManualInput && _kLineType == 'monthly') {
+        print('   其他指标计算：');
+        print('   M5 = (D1 - D5) / 5 + C5');
+        print('      = (${D1.toStringAsFixed(4)} - ${D5.toStringAsFixed(4)}) / 5 + ${C5.toStringAsFixed(4)}');
+        print('      = ${((D1 - D5) / 5).toStringAsFixed(4)} + ${C5.toStringAsFixed(4)}');
+        print('      = ${M5.toStringAsFixed(4)}');
+        print('   L5 = (M5 × 5 - D1) / 4');
+        print('      = (${M5.toStringAsFixed(4)} × 5 - ${D1.toStringAsFixed(4)}) / 4');
+        print('      = ${((M5 * 5 - D1) / 4).toStringAsFixed(4)}');
+        print('      = ${L5.toStringAsFixed(4)}');
+        print('   H5 = (M5 × 5 - D1) / 3.76');
+        print('      = (${M5.toStringAsFixed(4)} × 5 - ${D1.toStringAsFixed(4)}) / 3.76');
+        print('      = ${((M5 * 5 - D1) / 3.76).toStringAsFixed(4)}');
+        print('      = ${H5.toStringAsFixed(4)}');
+        print('   M10 = (D1 - D10) / 10 + C10');
+        print('       = (${D1.toStringAsFixed(4)} - ${D10.toStringAsFixed(4)}) / 10 + ${C10.toStringAsFixed(4)}');
+        print('       = ${((D1 - D10) / 10).toStringAsFixed(4)} + ${C10.toStringAsFixed(4)}');
+        print('       = ${M10.toStringAsFixed(4)}');
+        print('   QW = D1 + (D1 - M5) × 5');
+        print('      = ${D1.toStringAsFixed(4)} + (${D1.toStringAsFixed(4)} - ${M5.toStringAsFixed(4)}) × 5');
+        print('      = ${D1.toStringAsFixed(4)} + ${((D1 - M5) * 5).toStringAsFixed(4)}');
+        print('      = ${QW.toStringAsFixed(4)}');
+        print('   FW = M5 + 0.1 × D1 / 5');
+        print('      = ${M5.toStringAsFixed(4)} + 0.1 × ${D1.toStringAsFixed(4)} / 5');
+        print('      = ${M5.toStringAsFixed(4)} + ${(0.1 * D1 / 5).toStringAsFixed(4)}');
+        print('      = ${FW.toStringAsFixed(4)}');
+        print('📊 月K手动输入计算完成');
+      }
 
       // 计算预测日期
       // 如果没有手动输入：预测日期是D1所在的交易日
@@ -621,11 +741,19 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
 
     for (int i = 0; i <= targetDateIndex && i < dailyCloses.length; i++) {
       final dateStr = dailyDates[i];
-      final date = DateTime.parse(
-        '${dateStr.substring(0, 4)}-'
-        '${dateStr.substring(4, 6)}-'
-        '${dateStr.substring(6, 8)}',
-      );
+      // 处理两种日期格式：yyyyMMdd 或 yyyy-MM-dd
+      DateTime date;
+      if (dateStr.length == 8) {
+        // yyyyMMdd格式
+        date = DateTime.parse(
+          '${dateStr.substring(0, 4)}-'
+          '${dateStr.substring(4, 6)}-'
+          '${dateStr.substring(6, 8)}',
+        );
+      } else {
+        // yyyy-MM-dd格式，直接解析
+        date = DateTime.parse(dateStr);
+      }
       final close = dailyCloses[i];
       DateTime periodStartDate;
 
@@ -870,7 +998,7 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.orange,
+                  color: _getKLineTypeColor(_kLineType),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -1404,7 +1532,7 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.orange,
+                    color: _getKLineTypeColor(_kLineType),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -1531,12 +1659,31 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: Text(
-                                  'K线类型: ${_getKLineTypeText(item['kLineType'])}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      'K线类型: ',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: _getKLineTypeColor(item['kLineType']),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Text(
+                                        _getKLineTypeText(item['kLineType']),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               if (item['manualPrice'] != null)
@@ -1582,6 +1729,20 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
         return '月K';
       default:
         return '日K';
+    }
+  }
+
+  // 获取K线类型对应的颜色
+  Color _getKLineTypeColor(String? type) {
+    switch (type) {
+      case 'daily':
+        return Colors.blue; // 日K使用蓝色
+      case 'weekly':
+        return Colors.orange; // 周K使用橙色
+      case 'monthly':
+        return Colors.purple; // 月K使用紫色
+      default:
+        return Colors.blue;
     }
   }
 
