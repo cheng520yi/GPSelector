@@ -14,6 +14,7 @@ import '../services/stock_info_service.dart';
 import '../services/blacklist_service.dart';
 import '../models/favorite_group.dart';
 import '../widgets/kline_chart_widget.dart';
+import 'stock_prediction_screen.dart';
 
 // 分组选择对话框组件
 class _GroupSelectionDialog extends StatefulWidget {
@@ -1074,6 +1075,22 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
         title: Text(widget.stockInfo.name),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // 预测分析按钮
+          IconButton(
+            icon: const Icon(Icons.trending_up),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => StockPredictionScreen(
+                    stockInfo: widget.stockInfo,
+                    currentKlineData: _selectedKlineData ?? 
+                        (_klineDataList.isNotEmpty ? _klineDataList.last : null),
+                  ),
+                ),
+              );
+            },
+            tooltip: '股票预测分析',
+          ),
           // 只有非指数股票才显示添加分组和黑名单功能
           if (widget.stockInfo.industry != '指数') ...[
             // 黑名单按钮
