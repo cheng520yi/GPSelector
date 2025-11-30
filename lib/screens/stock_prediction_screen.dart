@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math' as math;
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../services/stock_api_service.dart';
@@ -122,6 +124,30 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
     return nextDate;
   }
 
+  // 获取前一个交易日
+  DateTime _getPreviousTradingDay(DateTime date) {
+    DateTime prevDate = date;
+    do {
+      prevDate = prevDate.subtract(const Duration(days: 1));
+    } while (prevDate.weekday == 6 || prevDate.weekday == 7);
+    return prevDate;
+  }
+
+  // 获取预测日期对应的D1日期（交易日）
+  DateTime _getD1Date(DateTime selectedDate) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final selectedDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    
+    // 如果所选日期为交易日且在今天或之前，则把所选时间作为D1
+    if (StockApiService.isTradingDay(selectedDate) && (selectedDay.isBefore(today) || selectedDay.isAtSameMomentAs(today))) {
+      return selectedDate;
+    }
+    
+    // 如果为非交易日，则预测时间显示为所选日期向前最近的一个交易日作为D1
+    return _getPreviousTradingDay(selectedDate);
+  }
+
   // 查询股票数据
   Future<void> _queryStockData() async {
     setState(() {
@@ -153,17 +179,19 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
   // 获取普通股票数据
   Future<void> _fetchStockData(String tsCode) async {
     try {
-      final endDateStr = DateFormat('yyyy-MM-dd').format(_endDate);
+      // 计算D1日期（预测日期对应的交易日）
+      final d1Date = _getD1Date(_endDate);
+      final d1DateStr = DateFormat('yyyy-MM-dd').format(d1Date);
       
-      // 根据K线类型调整请求的数据量
-      int daysToFetch = 15;
+      // 根据K线类型调整请求的数据量（用于绘制60天走势图）
+      int daysToFetch = 90; // 多请求一些天数确保有60个交易日
       if (_kLineType == 'weekly') {
-        daysToFetch = 120;
+        daysToFetch = 420; // 60周约需要420个自然日
       } else if (_kLineType == 'monthly') {
-        daysToFetch = 500;
+        daysToFetch = 1800; // 60个月约需要1800个自然日
       }
       
-      final startDateStr = _calculateStartDate(_endDate, daysToFetch);
+      final startDateStr = _calculateStartDate(d1Date, daysToFetch);
       final actualApiName = (_kLineType == 'weekly' || _kLineType == 'monthly') 
           ? 'daily' 
           : _kLineType;
@@ -313,9 +341,45 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       }
 
 
-      // 提取收盘价
+      // 如果没有手动输入，确保使用预测日期（d1Date）的收盘价作为D1
+      // 找到sortedData中日期等于d1Date的数据
+      final d1DateStr8 = DateFormat('yyyyMMdd').format(d1Date);
+      final d1DateStr10 = d1DateStr;
+      
+      KlineData? d1KlineData;
+      int d1Index = -1;
+      for (int i = sortedData.length - 1; i >= 0; i--) {
+        final data = sortedData[i];
+        if (data.tradeDate == d1DateStr8 || data.tradeDate == d1DateStr10) {
+          d1KlineData = data;
+          d1Index = i;
+          break;
+        }
+      }
+      
+      if (d1KlineData == null) {
+        setState(() {
+          _errorMessage = '未找到预测日期（${d1DateStr}）的K线数据';
+          _isLoading = false;
+        });
+        return;
+      }
+      
+      print('✅ 找到预测日期（${d1DateStr}）的K线数据，收盘价=${d1KlineData.close}');
+
+      // 提取收盘价（用于计算指标）
       final closes = sortedData.map((e) => e.close).toList();
       final dates = sortedData.map((e) => e.tradeDate).toList();
+      
+      // 保存完整的K线数据（用于绘制预测走势图）
+      // 只展示预测日期前40个交易单位的数据（包含预测日期）
+      // 找到d1Index，然后取前40个交易单位的数据
+      final chartDataCountForKline = 40;
+      final startIndex = math.max(0, d1Index - chartDataCountForKline + 1); // 包含d1Date，所以+1
+      final klineDataForChart = sortedData.sublist(
+        startIndex,
+        d1Index + 1, // 包含d1Date
+      );
 
       // 对于周K和月K，如果启用手动输入，需要先将手动输入添加到日K数据，然后再分组
       // 对于日K，手动输入直接添加到数据末尾
@@ -383,21 +447,57 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
           return;
         }
       } else {
-        // 没有手动输入
+        // 没有手动输入，确保使用预测日期（d1Date）的收盘价作为D1
         if (_kLineType == 'weekly' || _kLineType == 'monthly') {
-          // 对日K数据进行分组
+          // 周K和月K：对日K数据进行分组，但确保最后一条数据的日期是d1Date
+          // 需要找到包含d1Date的周期，确保该周期的收盘价是d1Date的收盘价
+          
+          // 截取到d1Date的数据（包含d1Date）
+          final closesToD1 = closes.sublist(0, d1Index + 1);
+          final datesToD1 = dates.sublist(0, d1Index + 1);
+          
+          // 对包含d1Date的日K数据进行分组
           final grouped = _groupDailyToPeriods(
-            closes,
-            dates,
+            closesToD1,
+            datesToD1,
             _kLineType,
-            sortedData.length - 1,
+            d1Index, // 使用d1Index作为目标日期索引
           );
           displayCloses = List.from(grouped['periodCloses'] as List<double>);
           displayDates = List.from(grouped['periodDates'] as List<String>);
+          
+          // 验证最后一条数据的日期是否是d1Date
+          final lastPeriodDate = displayDates.last;
+          final lastPeriodDate8 = lastPeriodDate.length == 8 
+              ? lastPeriodDate 
+              : lastPeriodDate.replaceAll('-', '');
+          if (lastPeriodDate8 != d1DateStr8) {
+            print('⚠️ 警告：周K/月K最后一条数据的日期（$lastPeriodDate）不是预测日期（$d1DateStr）');
+            // 如果最后一条数据的日期不是d1Date，需要确保使用d1Date的收盘价
+            // 这种情况不应该发生，因为_groupDailyToPeriods应该会包含d1Date
+          }
+          
+          print('✅ 周K/月K分组完成，最后一条数据日期=${displayDates.last}，收盘价=${displayCloses.last}');
         } else {
-          // 日K：直接使用
-          displayCloses = List.from(closes);
-          displayDates = List.from(dates);
+          // 日K：确保最后一条数据的日期是d1Date
+          // 截取到d1Date的数据（包含d1Date）
+          displayCloses = closes.sublist(0, d1Index + 1);
+          displayDates = dates.sublist(0, d1Index + 1);
+          
+          // 验证最后一条数据的日期是否是d1Date
+          final lastDate = displayDates.last;
+          final lastDate8 = lastDate.length == 8 
+              ? lastDate 
+              : lastDate.replaceAll('-', '');
+          if (lastDate8 != d1DateStr8) {
+            setState(() {
+              _errorMessage = '数据错误：最后一条数据的日期（$lastDate）不是预测日期（$d1DateStr）';
+              _isLoading = false;
+            });
+            return;
+          }
+          
+          print('✅ 日K数据准备完成，最后一条数据日期=${displayDates.last}，收盘价=${displayCloses.last}');
         }
       }
 
@@ -527,6 +627,7 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       }
 
       // 计算预测日期
+      // D1日期就是d1Date（已经计算好的交易日）
       // 如果没有手动输入：预测日期是D1所在的交易日
       // 如果有手动输入：预测日期是手动输入日期本身（即D1所在交易日的下一个交易日）
       String nextDateStr;
@@ -535,41 +636,86 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
         nextDateStr = displayDates.last;
       } else {
         // 如果没有手动输入，预测日期就是D1所在的交易日
-        // D1对应的是displayDates中最后一项（因为D1是displayCloses的最后一项）
-        String d1DateStr = displayDates.last;
-        // 确保日期格式为yyyy-MM-dd
-        if (d1DateStr.length == 8) {
-          nextDateStr = '${d1DateStr.substring(0, 4)}-${d1DateStr.substring(4, 6)}-${d1DateStr.substring(6, 8)}';
-        } else {
-          nextDateStr = d1DateStr;
-        }
+        nextDateStr = d1DateStr;
       }
+      
+      // 保存真实的操作时间（当前时间）作为查询时间
+      final queryTime = DateTime.now();
 
-      // 计算5日均线
+      // 计算5日、10日和20日均线（用于绘制预测走势图）
       final ma5 = _calculateMA(displayCloses, 5);
       final displayMA5 = ma5.where((e) => e != null).map((e) => e!).toList();
+      final ma10 = _calculateMA(displayCloses, 10);
+      final displayMA10 = ma10.where((e) => e != null).map((e) => e!).toList();
+      final ma20 = _calculateMA(displayCloses, 20);
+      final displayMA20 = ma20.where((e) => e != null).map((e) => e!).toList();
+
+      // 对于图表数据，需要找到对应的displayDates和displayCloses的索引
+      // 计算displayDates中对应d1Date的索引
+      int d1DisplayIndex = -1;
+      final d1DateStrForMatch = d1DateStr8.length == 8 
+          ? '${d1DateStr8.substring(0, 4)}-${d1DateStr8.substring(4, 6)}-${d1DateStr8.substring(6, 8)}'
+          : d1DateStr10;
+      for (int i = displayDates.length - 1; i >= 0; i--) {
+        final dateStr = displayDates[i];
+        final dateStr8 = dateStr.length == 10 
+            ? dateStr.replaceAll('-', '')
+            : dateStr;
+        if (dateStr == d1DateStrForMatch || dateStr8 == d1DateStr8) {
+          d1DisplayIndex = i;
+          break;
+        }
+      }
+      
+      // 如果找不到，使用最后一条数据
+      if (d1DisplayIndex < 0) {
+        d1DisplayIndex = displayDates.length - 1;
+      }
+      
+      // 取前40个交易单位的数据（包含d1Date）
+      final chartDataCount = 40;
+      final chartStartIndex = math.max(0, d1DisplayIndex - chartDataCount + 1);
+      final chartEndIndex = d1DisplayIndex + 1;
+      
+      // 计算MA数据的起始索引（MA数据可能少于价格数据）
+      final ma5StartIndex = math.max(0, chartStartIndex - (displayCloses.length - displayMA5.length));
+      final ma5EndIndex = chartEndIndex - (displayCloses.length - displayMA5.length);
+      final ma10StartIndex = math.max(0, chartStartIndex - (displayCloses.length - displayMA10.length));
+      final ma10EndIndex = chartEndIndex - (displayCloses.length - displayMA10.length);
+      final ma20StartIndex = math.max(0, chartStartIndex - (displayCloses.length - displayMA20.length));
+      final ma20EndIndex = chartEndIndex - (displayCloses.length - displayMA20.length);
 
       // 创建预测数据
       final predictionData = {
         'stockCode': tsCode,
         'stockName': widget.stockInfo.name,
         'date': nextDateStr,
-        'queryDate': DateFormat('yyyy-MM-dd').format(_endDate),
-        'dates': displayDates.sublist(
-          displayDates.length - 10 > 0 ? displayDates.length - 10 : 0,
-        ).map((d) {
+        'queryDate': DateFormat('yyyy-MM-dd HH:mm:ss').format(queryTime), // 真实的操作时间
+        'predictionDate': d1DateStr, // D1日期（交易日）
+        'klineData': klineDataForChart.map((k) => k.toJson()).toList(),
+        'dates': displayDates.sublist(chartStartIndex, chartEndIndex).map((d) {
           // 确保日期格式为 yyyy-MM-dd
           if (d.length == 8) {
             return '${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}';
           }
           return d;
         }).toList(),
-        'prices': displayCloses.sublist(
-          displayCloses.length - 10 > 0 ? displayCloses.length - 10 : 0,
-        ),
-        'ma5': displayMA5.sublist(
-          displayMA5.length - 10 > 0 ? displayMA5.length - 10 : 0,
-        ),
+        'prices': displayCloses.sublist(chartStartIndex, chartEndIndex),
+        'ma5': displayMA5.length >= ma5EndIndex && ma5EndIndex > ma5StartIndex
+            ? displayMA5.sublist(ma5StartIndex, ma5EndIndex)
+            : displayMA5.length > (chartEndIndex - chartStartIndex)
+                ? displayMA5.sublist(displayMA5.length - (chartEndIndex - chartStartIndex))
+                : displayMA5,
+        'ma10': displayMA10.length >= ma10EndIndex && ma10EndIndex > ma10StartIndex
+            ? displayMA10.sublist(ma10StartIndex, ma10EndIndex)
+            : displayMA10.length > (chartEndIndex - chartStartIndex)
+                ? displayMA10.sublist(displayMA10.length - (chartEndIndex - chartStartIndex))
+                : displayMA10,
+        'ma20': displayMA20.length >= ma20EndIndex && ma20EndIndex > ma20StartIndex
+            ? displayMA20.sublist(ma20StartIndex, ma20EndIndex)
+            : displayMA20.length > (chartEndIndex - chartStartIndex)
+                ? displayMA20.sublist(displayMA20.length - (chartEndIndex - chartStartIndex))
+                : displayMA20,
         'D1': D1,
         'D5': D5,
         'D10': D10,
@@ -1142,13 +1288,13 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
   Widget _buildInputArea() {
     return Column(
       children: [
-        // 查询日期（非均线模式）
+        // 预测日期（非均线模式）
         if (_maMode == 'none')
           Row(
             children: [
               Expanded(
                 child: _buildDatePicker(
-                  '查询日期',
+                  '预测日期',
                   _endDate,
                   (date) {
                     setState(() {
@@ -1406,6 +1552,44 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
     );
   }
 
+  // 构建预测走势图
+  Widget _buildPredictionChart(Map<String, dynamic> data) {
+    // 从K线数据中提取信息
+    List<KlineData> klineDataList = [];
+    if (data['klineData'] != null) {
+      klineDataList = (data['klineData'] as List<dynamic>)
+          .map((json) => KlineData.fromJson(json))
+          .toList();
+    }
+    
+    final dates = (data['dates'] as List<dynamic>).cast<String>();
+    final ma5 = (data['ma5'] as List<dynamic>?)?.cast<double>() ?? [];
+    final ma10 = (data['ma10'] as List<dynamic>?)?.cast<double>() ?? [];
+    final ma20 = (data['ma20'] as List<dynamic>?)?.cast<double>() ?? [];
+    final M5 = data['M5'] as double;
+    final M10 = data['M10'] as double;
+    
+    if (klineDataList.isEmpty) {
+      return const Center(
+        child: Text('暂无数据'),
+      );
+    }
+
+    return CustomPaint(
+      painter: PredictionChartPainter(
+        klineDataList: klineDataList,
+        dates: dates,
+        ma5: ma5,
+        ma10: ma10,
+        ma20: ma20,
+        m5Value: M5,
+        m10Value: M10,
+        kLineType: _kLineType,
+      ),
+      size: Size.infinite,
+    );
+  }
+
   Widget _buildMAAnalysisResult() {
     final data = _predictionData!;
     
@@ -1577,16 +1761,19 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
                 ),
               );
             }
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: filteredList.length,
-              itemBuilder: (context, index) {
+            return Column(
+              children: [
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filteredList.length,
+                  itemBuilder: (context, index) {
                 final item = filteredList[index];
                 final isCurrent = _predictionData != null &&
                     item['queryDate'] == _predictionData!['queryDate'] &&
                     item['kLineType'] == _predictionData!['kLineType'] &&
-                    item['manualPrice'] == _predictionData!['manualPrice'];
+                    (item['manualPrice'] == _predictionData!['manualPrice'] || 
+                     (item['manualPrice'] == null && _predictionData!['manualPrice'] == null));
                 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1639,7 +1826,7 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  '查询日期: ${item['queryDate']}',
+                                  '查询时间: ${item['queryDate']}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey[600],
@@ -1712,6 +1899,34 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
               ),
                 );
               },
+            ),
+                // 在列表最下方添加预测图表
+                if (_predictionData != null) ...[
+                  const SizedBox(height: 24),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '预测走势图',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 300,
+                            child: _buildPredictionChart(_predictionData!),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             );
           },
         ),
@@ -1859,6 +2074,562 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
         ),
       ),
     );
+  }
+}
+
+// 预测走势图绘制器
+class PredictionChartPainter extends CustomPainter {
+  final List<KlineData> klineDataList;
+  final List<String> dates;
+  final List<double> ma5;
+  final List<double> ma10;
+  final List<double> ma20;
+  final double m5Value;
+  final double m10Value;
+  final String kLineType;
+
+  static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度，参照主图）
+  static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度，参照主图）
+  static const double topPadding = 0.0; // 顶部padding（设为0，完全占满，参照主图）
+  static const double bottomPadding = 18.0; // 底部padding（用于日期标签，参照主图）
+  static const double priceLabelPadding = 1.0; // 价格标签距离左侧的间距（覆盖在图表上，偏左展示，参照主图）
+  static const double candleWidth = 7.0;
+  static const double candleSpacing = 1.0;
+
+  PredictionChartPainter({
+    required this.klineDataList,
+    required this.dates,
+    required this.ma5,
+    required this.ma10,
+    required this.ma20,
+    required this.m5Value,
+    required this.m10Value,
+    required this.kLineType,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (klineDataList.isEmpty) return;
+
+    final chartWidth = size.width - leftPadding - rightPadding;
+    final chartHeight = size.height - topPadding - bottomPadding;
+
+    // 计算价格范围（包括K线的高低价和预测值）
+    double maxPrice = klineDataList.map((e) => e.high).reduce(math.max);
+    double minPrice = klineDataList.map((e) => e.low).reduce(math.min);
+    
+    // 包含M5和M10预测值
+    maxPrice = math.max(maxPrice, math.max(m5Value, m10Value));
+    minPrice = math.min(minPrice, math.min(m5Value, m10Value));
+    
+    // 添加一些边距
+    final priceRange = maxPrice - minPrice;
+    final pricePadding = priceRange * 0.05;
+    maxPrice += pricePadding;
+    minPrice -= pricePadding;
+    final adjustedPriceRange = maxPrice - minPrice;
+
+    // 绘制K线图背景网格（参照主图）
+    _drawKlineGrid(canvas, size, maxPrice, minPrice, chartHeight);
+
+    // 绘制价格标签（参照主图）
+    _drawPriceLabels(canvas, size, chartWidth, chartHeight, maxPrice, minPrice, adjustedPriceRange);
+
+    // 绘制日期标签
+    _drawDateLabels(canvas, size, chartWidth, dates);
+
+    // 绘制K线柱形图
+    _drawCandles(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange);
+
+    // 绘制MA5线（实线，黑色，与主图一致）
+    if (ma5.isNotEmpty) {
+      _drawMALine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, ma5, Colors.black, false);
+    }
+
+    // 绘制MA10线（实线，黄色，与主图一致）
+    if (ma10.isNotEmpty) {
+      _drawMALine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, ma10, Colors.yellow, false);
+    }
+
+    // 绘制MA20线（实线，紫色，与主图一致）
+    if (ma20.isNotEmpty) {
+      _drawMALine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, ma20, Colors.purple, false);
+    }
+
+    // 绘制M5预测趋势线（虚线，颜色与MA5一致，使用黑色）
+    // M5连线起点改为上一天的ma5的终点
+    _drawPredictionLine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, m5Value, Colors.black, 'M5', ma5);
+
+    // 绘制M10预测趋势线（虚线，颜色与MA10一致，使用黄色）
+    // M10连线起点改为上一天的ma10的终点
+    _drawPredictionLine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, m10Value, Colors.yellow, 'M10', ma10);
+
+    // 绘制图例（在顶部，不与K线重叠）
+    _drawLegend(canvas, size);
+  }
+
+  // 绘制K线图背景网格（参照主图）
+  void _drawKlineGrid(Canvas canvas, Size size, double maxPrice, double minPrice, double chartHeight) {
+    final gridPaint = Paint()
+      ..color = Colors.grey[300]!
+      ..strokeWidth = 0.5;
+
+    // 水平网格线（价格）
+    for (int i = 0; i <= 4; i++) {
+      final y = topPadding + (chartHeight / 4) * i;
+      canvas.drawLine(
+        Offset(leftPadding, y),
+        Offset(size.width - rightPadding, y),
+        gridPaint,
+      );
+    }
+
+    // 垂直网格线（日期）- 参照主图，不绘制垂直网格线
+    // 主图中没有垂直网格线，所以这里也不绘制
+  }
+
+  void _drawPriceLabels(Canvas canvas, Size size, double chartWidth, double chartHeight,
+      double maxPrice, double minPrice, double priceRange) {
+    final textStyle = TextStyle(
+      color: Colors.grey[700],
+      fontSize: 9, // 减小字体大小，参照主图
+    );
+    final textPainter = TextPainter(
+      textAlign: TextAlign.left,
+      textDirection: ui.TextDirection.ltr,
+    );
+
+    // 绘制价格标签（覆盖在图表上，在图表内部显示，展示在网格横线上，偏左展示，参照主图）
+    for (int i = 0; i <= 4; i++) {
+      final price = maxPrice - (priceRange / 4) * i;
+      textPainter.text = TextSpan(
+        text: price.toStringAsFixed(2), // 去掉¥符号，更简洁
+        style: textStyle,
+      );
+      textPainter.layout();
+      // 价格标签覆盖在图表上，展示在网格横线上（向上微调），偏左展示（向左微调）
+      final y = topPadding + chartHeight * i / 4;
+      // 向上微调：减去一个小的偏移量，让标签稍微在网格线上方
+      textPainter.paint(
+        canvas,
+        Offset(priceLabelPadding, y - textPainter.height / 2 - 4),
+      );
+    }
+  }
+
+  void _drawDateLabels(Canvas canvas, Size size, double chartWidth, List<String> dates) {
+    if (dates.isEmpty) return;
+
+    final textStyle = TextStyle(
+      fontSize: 9, // 参照主图
+      color: Colors.grey[700],
+    );
+    final textPainter = TextPainter(
+      textAlign: TextAlign.center,
+      textDirection: ui.TextDirection.ltr,
+    );
+
+    // 计算K线宽度和间距（与_drawCandles保持一致）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    if (klineDataList.length == 1) {
+      dynamicCandleWidth = chartWidth;
+      dynamicCandleSpacing = 0;
+    } else if (klineDataList.length > 1) {
+      final availableWidthPerCandle = chartWidth / klineDataList.length;
+      final totalRatio = candleWidth + candleSpacing;
+      dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+      dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+    }
+    final dynamicCandleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    // 参照主图，显示4个日期标签
+    final step = math.max(1, (dates.length - 1) ~/ 4);
+    for (int i = 0; i < dates.length; i += step) {
+      if (i >= dates.length) break;
+      
+      final date = dates[i];
+      // 简化日期显示
+      String displayDate = date;
+      if (date.length >= 10) {
+        displayDate = date.substring(5); // 显示 MM-DD
+      }
+      
+      // 确保第一个和最后一个日期标签对齐到K线中心（参照主图）
+      final x = i * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+      
+      textPainter.text = TextSpan(text: displayDate, style: textStyle);
+      textPainter.layout();
+      textPainter.paint(
+        canvas,
+        Offset(x - textPainter.width / 2, size.height - bottomPadding + 8),
+      );
+    }
+  }
+
+  // 绘制K线柱形图
+  void _drawCandles(Canvas canvas, double chartWidth, double chartHeight,
+      double maxPrice, double priceRange) {
+    if (klineDataList.isEmpty) return;
+
+    // 计算K线宽度和间距（参照主图，确保第一个和最后一个K线完全铺满）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+
+    if (klineDataList.length == 1) {
+      // 只有一根K线，完全铺满
+      dynamicCandleWidth = chartWidth;
+      dynamicCandleSpacing = 0;
+    } else if (klineDataList.length > 1) {
+      // 多个K线，计算每个K线应该占用的宽度，使第一个和最后一个K线完全铺满
+      final availableWidthPerCandle = chartWidth / klineDataList.length;
+      final totalRatio = candleWidth + candleSpacing;
+      dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+      dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+    }
+
+    final dynamicCandleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+
+    for (int i = 0; i < klineDataList.length; i++) {
+      final data = klineDataList[i];
+      // 确保第一个K线从0开始，最后一个K线延伸到chartWidth（参照主图）
+      // 第一个K线的中心应该在dynamicCandleWidth/2位置
+      // 最后一个K线的中心应该在chartWidth - dynamicCandleWidth/2位置
+      final x = i * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+
+      // 计算价格对应的Y坐标
+      final highY = topPadding + (maxPrice - data.high) / priceRange * chartHeight;
+      final lowY = topPadding + (maxPrice - data.low) / priceRange * chartHeight;
+      final openY = topPadding + (maxPrice - data.open) / priceRange * chartHeight;
+      final closeY = topPadding + (maxPrice - data.close) / priceRange * chartHeight;
+
+      // 判断涨跌
+      final isRising = data.close >= data.open;
+      final color = isRising ? Colors.red[800]! : Colors.green[700]!;
+
+      // 计算实体位置
+      final bodyTop = math.min(openY, closeY);
+      final bodyBottom = math.max(openY, closeY);
+      final bodyHeight = math.max(bodyBottom - bodyTop, 1.0);
+
+      // 绘制实体（矩形）
+      // 确保第一个K线从0开始，最后一个K线延伸到chartWidth
+      double rectX = x - dynamicCandleWidth / 2;
+      double rectWidth = dynamicCandleWidth;
+      
+      if (i == 0) {
+        // 第一个K线，从0开始
+        rectX = 0;
+      } else if (i == klineDataList.length - 1) {
+        // 最后一个K线，延伸到chartWidth
+        rectX = x - dynamicCandleWidth / 2;
+        rectWidth = chartWidth - rectX;
+      }
+      
+      final bodyPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+
+      canvas.drawRect(
+        Rect.fromLTWH(
+          rectX,
+          bodyTop,
+          rectWidth,
+          bodyHeight,
+        ),
+        bodyPaint,
+      );
+
+      // 如果是涨（红柱），绘制白色内部矩形实现空心效果
+      if (isRising) {
+        final whitePaint = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill;
+
+        // 确保白色矩形与实体矩形对齐
+        final whiteRectWidth = math.max(rectWidth - 2.0, 1.0);
+        final whiteRectHeight = math.max(bodyHeight - 2.0, 1.0);
+        final whiteRectLeft = rectX + 1.0;
+        final whiteRectTop = bodyTop + 1.0;
+
+        canvas.drawRect(
+          Rect.fromLTWH(
+            whiteRectLeft,
+            whiteRectTop,
+            whiteRectWidth,
+            whiteRectHeight,
+          ),
+          whitePaint,
+        );
+      }
+
+      // 绘制上下影线
+      final shadowPaint = Paint()
+        ..color = color
+        ..strokeWidth = 1.0;
+
+      // 上影线：从最高价到实体顶部
+      if (highY < bodyTop) {
+        canvas.drawLine(
+          Offset(x, highY),
+          Offset(x, bodyTop),
+          shadowPaint,
+        );
+      }
+
+      // 下影线：从实体底部到最低价
+      if (lowY > bodyBottom) {
+        canvas.drawLine(
+          Offset(x, bodyBottom),
+          Offset(x, lowY),
+          shadowPaint,
+        );
+      }
+    }
+  }
+
+  void _drawMALine(Canvas canvas, double chartWidth, double chartHeight,
+      double maxPrice, double priceRange, List<double> maValues, Color color, bool isDashed) {
+    if (maValues.length < 2) return;
+
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    // 计算K线宽度和间距（与_drawCandles保持一致）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    if (klineDataList.length == 1) {
+      dynamicCandleWidth = chartWidth;
+      dynamicCandleSpacing = 0;
+    } else if (klineDataList.length > 1) {
+      final availableWidthPerCandle = chartWidth / klineDataList.length;
+      final totalRatio = candleWidth + candleSpacing;
+      dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+      dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+    }
+    final dynamicCandleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+    
+    // MA数据点可能少于K线数据点（因为需要多个数据点才能计算MA）
+    final maStartIndex = klineDataList.length - maValues.length;
+    
+    if (isDashed) {
+      // 绘制虚线
+      final dashLength = 5.0;
+      final gapLength = 3.0;
+      
+      for (int i = 0; i < maValues.length - 1; i++) {
+        final priceIndex1 = maStartIndex + i;
+        final priceIndex2 = maStartIndex + i + 1;
+        // 确保第一个和最后一个点对齐到K线中心（参照主图）
+        final x1 = priceIndex1 * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+        final y1 = topPadding + (maxPrice - maValues[i]) / priceRange * chartHeight;
+        final x2 = priceIndex2 * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+        final y2 = topPadding + (maxPrice - maValues[i + 1]) / priceRange * chartHeight;
+        
+        final totalLength = math.sqrt(math.pow(x2 - x1, 2) + math.pow(y2 - y1, 2));
+        final dx = (x2 - x1) / totalLength;
+        final dy = (y2 - y1) / totalLength;
+        
+        double currentLength = 0.0;
+        while (currentLength < totalLength) {
+          final startX = x1 + dx * currentLength;
+          final startY = y1 + dy * currentLength;
+          final dashEndLength = math.min(currentLength + dashLength, totalLength);
+          final endX = x1 + dx * dashEndLength;
+          final endY = y1 + dy * dashEndLength;
+          
+          canvas.drawLine(
+            Offset(startX, startY),
+            Offset(endX, endY),
+            linePaint,
+          );
+          
+          currentLength += dashLength + gapLength;
+        }
+      }
+    } else {
+      // 绘制实线
+      final path = Path();
+      
+      for (int i = 0; i < maValues.length; i++) {
+        final priceIndex = maStartIndex + i;
+        // 确保第一个和最后一个点对齐到K线中心（参照主图）
+        final x = priceIndex * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+        final y = topPadding + (maxPrice - maValues[i]) / priceRange * chartHeight;
+
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+
+      canvas.drawPath(path, linePaint);
+    }
+  }
+
+  void _drawPredictionLine(Canvas canvas, double chartWidth, double chartHeight,
+      double maxPrice, double priceRange, double predictionValue, Color color, String label, List<double>? maValues) {
+    if (klineDataList.isEmpty) return;
+
+    // 计算K线宽度和间距（与_drawCandles保持一致）
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+    if (klineDataList.length == 1) {
+      dynamicCandleWidth = chartWidth;
+      dynamicCandleSpacing = 0;
+    } else if (klineDataList.length > 1) {
+      final availableWidthPerCandle = chartWidth / klineDataList.length;
+      final totalRatio = candleWidth + candleSpacing;
+      dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+      dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+    }
+    final dynamicCandleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+    
+    // 计算起点：如果提供了MA值，使用上一天的MA终点；否则使用最后一个K线的收盘价
+    final lastPriceIndex = klineDataList.length - 1;
+    // 起点X坐标（最后一个K线的中心）
+    final startX = lastPriceIndex * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
+    double startY;
+    
+    if (maValues != null && maValues.isNotEmpty) {
+      // 使用上一天的MA终点作为起点
+      // 上一天的MA值（最后一个MA值）
+      final lastMaValue = maValues.last;
+      startY = topPadding + (maxPrice - lastMaValue) / priceRange * chartHeight;
+    } else {
+      // 从最后一个K线的收盘价绘制到预测值
+      final lastKline = klineDataList.last;
+      startY = topPadding + (maxPrice - lastKline.close) / priceRange * chartHeight;
+    }
+
+    // 预测点位置（在图表右侧延伸）
+    final predictionX = chartWidth + 10;
+    final predictionY = topPadding + (maxPrice - predictionValue) / priceRange * chartHeight;
+
+    // 绘制预测线（虚线）
+    final dashPaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    // 绘制虚线效果（手动绘制）
+    final dashLength = 5.0;
+    final gapLength = 3.0;
+    final totalLength = math.sqrt(
+      math.pow(predictionX - startX, 2) + math.pow(predictionY - startY, 2),
+    );
+    final dx = (predictionX - startX) / totalLength;
+    final dy = (predictionY - startY) / totalLength;
+
+    double currentLength = 0.0;
+    while (currentLength < totalLength) {
+      final dashStartX = startX + dx * currentLength;
+      final dashStartY = startY + dy * currentLength;
+      final dashEndLength = math.min(currentLength + dashLength, totalLength);
+      final dashEndX = startX + dx * dashEndLength;
+      final dashEndY = startY + dy * dashEndLength;
+
+      canvas.drawLine(
+        Offset(dashStartX, dashStartY),
+        Offset(dashEndX, dashEndY),
+        dashPaint,
+      );
+
+      currentLength += dashLength + gapLength;
+    }
+
+    // 绘制预测点
+    final pointPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(predictionX, predictionY), 4, pointPaint);
+
+    // 绘制预测值标签
+    final textStyle = TextStyle(
+      fontSize: 10,
+      color: color,
+      fontWeight: FontWeight.bold,
+    );
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: '$label: ${predictionValue.toStringAsFixed(2)}',
+        style: textStyle,
+      ),
+      textAlign: TextAlign.left,
+      textDirection: ui.TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(predictionX + 8, predictionY - textPainter.height / 2),
+    );
+  }
+
+  void _drawLegend(Canvas canvas, Size size) {
+    final legendItems = [
+      if (ma5.isNotEmpty) {'label': 'MA5', 'color': Colors.black},
+      if (ma10.isNotEmpty) {'label': 'MA10', 'color': Colors.yellow},
+      if (ma20.isNotEmpty) {'label': 'MA20', 'color': Colors.purple},
+      {'label': 'M5预测', 'color': Colors.black}, // M5预测使用黑色，与MA5一致
+      {'label': 'M10预测', 'color': Colors.yellow}, // M10预测使用黄色，与MA10一致
+    ];
+
+    final textStyle = TextStyle(
+      fontSize: 10,
+      color: Colors.grey[700],
+    );
+    final textPainter = TextPainter(
+      textAlign: TextAlign.left,
+      textDirection: ui.TextDirection.ltr,
+    );
+
+    // 图例放在顶部左侧，不与K线重叠
+    double x = leftPadding;
+    double y = 8.0; // 距离顶部8像素
+    double itemSpacing = 8.0; // 图例项之间的间距
+
+    for (var item in legendItems) {
+      final color = item['color'] as Color;
+      final label = item['label'] as String;
+
+      // 绘制颜色块
+      final colorPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(
+        Rect.fromLTWH(x, y, 12, 12),
+        colorPaint,
+      );
+
+      // 绘制标签
+      textPainter.text = TextSpan(text: label, style: textStyle);
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x + 16, y));
+
+      // 计算下一个图例项的位置
+      x += 16 + textPainter.width + itemSpacing;
+      
+      // 如果超出宽度，换行
+      if (x + 50 > size.width - rightPadding) {
+        x = leftPadding;
+        y += 18;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(PredictionChartPainter oldDelegate) {
+    return oldDelegate.klineDataList != klineDataList ||
+        oldDelegate.dates != dates ||
+        oldDelegate.ma5 != ma5 ||
+        oldDelegate.ma10 != ma10 ||
+        oldDelegate.ma20 != ma20 ||
+        oldDelegate.m5Value != m5Value ||
+        oldDelegate.m10Value != m10Value ||
+        oldDelegate.kLineType != kLineType;
   }
 }
 
