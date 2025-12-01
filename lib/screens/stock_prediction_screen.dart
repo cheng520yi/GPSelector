@@ -2170,6 +2170,7 @@ class PredictionChartPainter extends CustomPainter {
   final double? QW; // 预测值QW
   final double? D1; // D1值
   final int? selectedIndex; // 选中的K线索引
+  final Map<String, double?>? selectedMaValues; // 选中K线的均线值
 
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度，参照主图）
   static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度，参照主图）
@@ -2190,6 +2191,7 @@ class PredictionChartPainter extends CustomPainter {
     this.QW,
     this.D1,
     this.selectedIndex,
+    this.selectedMaValues,
   });
 
   @override
@@ -2734,14 +2736,18 @@ class PredictionChartPainter extends CustomPainter {
 
   void _drawLegend(Canvas canvas, Size size) {
     final legendItems = [
-      if (ma5.isNotEmpty) {'label': 'MA5', 'color': Colors.black},
-      if (ma10.isNotEmpty) {'label': 'MA10', 'color': Colors.yellow},
-      if (ma20.isNotEmpty) {'label': 'MA20', 'color': Colors.purple},
+      if (ma5.isNotEmpty) {'label': 'MA5', 'color': Colors.black, 'value': selectedMaValues?['ma5']},
+      if (ma10.isNotEmpty) {'label': 'MA10', 'color': Colors.yellow, 'value': selectedMaValues?['ma10']},
+      if (ma20.isNotEmpty) {'label': 'MA20', 'color': Colors.purple, 'value': selectedMaValues?['ma20']},
     ];
 
     final textStyle = TextStyle(
       fontSize: 10,
       color: Colors.grey[700],
+    );
+    final valueTextStyle = TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.bold,
     );
     final textPainter = TextPainter(
       textAlign: TextAlign.left,
@@ -2756,6 +2762,7 @@ class PredictionChartPainter extends CustomPainter {
     for (var item in legendItems) {
       final color = item['color'] as Color;
       final label = item['label'] as String;
+      final value = item['value'] as double?;
 
       // 绘制颜色块
       final colorPaint = Paint()
@@ -2766,8 +2773,17 @@ class PredictionChartPainter extends CustomPainter {
         colorPaint,
       );
 
-      // 绘制标签
-      textPainter.text = TextSpan(text: label, style: textStyle);
+      // 绘制标签和值（如果选中）
+      String displayText = label;
+      if (value != null) {
+        displayText = '$label:${value.toStringAsFixed(2)}';
+        textPainter.text = TextSpan(
+          text: displayText,
+          style: valueTextStyle.copyWith(color: color),
+        );
+      } else {
+        textPainter.text = TextSpan(text: displayText, style: textStyle);
+      }
       textPainter.layout();
       textPainter.paint(canvas, Offset(x + 16, y));
 
@@ -2793,7 +2809,8 @@ class PredictionChartPainter extends CustomPainter {
         oldDelegate.predictionIndex != predictionIndex ||
         oldDelegate.QW != QW ||
         oldDelegate.D1 != D1 ||
-        oldDelegate.selectedIndex != selectedIndex;
+        oldDelegate.selectedIndex != selectedIndex ||
+        oldDelegate.selectedMaValues != selectedMaValues;
   }
 }
 
@@ -3021,12 +3038,63 @@ class _PredictionChartWidgetState extends State<_PredictionChartWidget> {
       return const SizedBox.shrink();
     }
     
+    // 计算涨跌幅
+    double pctChg = 0.0;
+    if (klineData.preClose > 0) {
+      pctChg = ((klineData.close - klineData.preClose) / klineData.preClose) * 100;
+    } else if (klineData.pctChg != null) {
+      pctChg = klineData.pctChg;
+    }
+    final isPositive = pctChg >= 0;
+    final pctChgText = '${isPositive ? '+' : ''}${pctChg.toStringAsFixed(2)}%';
+    
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
           padding: const EdgeInsets.only(right: 12),
-          child: _buildInfoItem('开盘', '¥${klineData.open.toStringAsFixed(2)}'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '开盘',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '¥${klineData.open.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '涨跌幅',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    pctChgText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isPositive ? Colors.red[700] : Colors.green[700],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.only(right: 12),
@@ -3084,6 +3152,7 @@ class _PredictionChartWidgetState extends State<_PredictionChartWidget> {
               QW: widget.QW,
               D1: widget.D1,
               selectedIndex: _selectedIndex,
+              selectedMaValues: _selectedMaValues,
             ),
             size: Size.infinite,
           ),
@@ -3112,32 +3181,7 @@ class _PredictionChartWidgetState extends State<_PredictionChartWidget> {
               ),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // MA值显示
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: _buildMaValue('MA5', _selectedMaValues['ma5'], Colors.black),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: _buildMaValue('MA10', _selectedMaValues['ma10'], Colors.yellow[700]!),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: _buildMaValue('MA20', _selectedMaValues['ma20'], Colors.purple),
-                        ),
-                      ],
-                    ),
-                    // K线价格信息（在MA后面）
-                    _buildKlineInfo(_selectedKlineData),
-                  ],
-                ),
+                child: _buildKlineInfo(_selectedKlineData),
               ),
             ),
           ),

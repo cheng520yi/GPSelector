@@ -60,6 +60,7 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
   // 预设选项
   final List<double> _amountThresholds = [5.0, 10.0, 20.0, 50.0, 100.0];
   final List<int> _consecutiveDaysOptions = [3, 5, 10, 20];
+  final List<int> _maGrowthDaysOptions = [1, 2, 3, 5, 10]; // 均线连续增长天数选项
   final List<String> _maTypes = ['ma5', 'ma10', 'ma20'];
 
   @override
@@ -1238,8 +1239,8 @@ class _ConditionConfigScreenState extends State<ConditionConfigScreen> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: DropdownButton<int>(
-                  value: config.days,
-                  items: _consecutiveDaysOptions.map((days) {
+                  value: _maGrowthDaysOptions.contains(config.days) ? config.days : 5,
+                  items: _maGrowthDaysOptions.map((days) {
                     return DropdownMenuItem(
                       value: days,
                       child: Text(
