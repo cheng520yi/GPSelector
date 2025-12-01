@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:async';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../services/stock_api_service.dart';
@@ -1562,12 +1563,17 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
           .toList();
     }
     
-    final dates = (data['dates'] as List<dynamic>).cast<String>();
+    List<String> dates = (data['dates'] as List<dynamic>).cast<String>();
     final ma5 = (data['ma5'] as List<dynamic>?)?.cast<double>() ?? [];
     final ma10 = (data['ma10'] as List<dynamic>?)?.cast<double>() ?? [];
     final ma20 = (data['ma20'] as List<dynamic>?)?.cast<double>() ?? [];
+    
+    // 获取预测相关数据
+    final D1 = data['D1'] as double;
+    final FW = data['FW'] as double;
+    final QW = data['QW'] as double;
     final M5 = data['M5'] as double;
-    final M10 = data['M10'] as double;
+    final tsCode = data['tsCode'] as String? ?? '';
     
     if (klineDataList.isEmpty) {
       return const Center(
@@ -1575,18 +1581,93 @@ class _StockPredictionScreenState extends State<StockPredictionScreen> {
       );
     }
 
-    return CustomPaint(
-      painter: PredictionChartPainter(
-        klineDataList: klineDataList,
-        dates: dates,
-        ma5: ma5,
-        ma10: ma10,
-        ma20: ma20,
-        m5Value: M5,
-        m10Value: M10,
-        kLineType: _kLineType,
-      ),
-      size: Size.infinite,
+    // 创建预测K线数据
+    KlineData? predictionKline;
+    String? predictionDateStr;
+    int? predictionIndex;
+    
+    // 获取最后一个K线的日期，计算下一个交易日作为预测日期
+    final lastKline = klineDataList.last;
+    String lastDateStr = lastKline.tradeDate;
+    DateTime lastDate;
+    if (lastDateStr.length == 8) {
+      lastDate = DateTime.parse(
+        '${lastDateStr.substring(0, 4)}-'
+        '${lastDateStr.substring(4, 6)}-'
+        '${lastDateStr.substring(6, 8)}',
+      );
+    } else {
+      lastDate = DateTime.parse(lastDateStr);
+    }
+    
+    // 获取下一个交易日作为预测日期
+    final nextDate = _getNextTradingDay(lastDate);
+    predictionDateStr = DateFormat('yyyy-MM-dd').format(nextDate);
+    
+    // 根据QW和D1的关系创建预测K线数据
+    if (QW > D1) {
+      // QW > D1: 开盘价=D1, 最高价=QW, 收盘价=QW, 最低价=M5
+      predictionKline = KlineData(
+        tsCode: tsCode,
+        tradeDate: predictionDateStr,
+        open: D1,
+        high: QW,
+        low: M5,
+        close: QW,
+        preClose: D1,
+        change: QW - D1,
+        pctChg: ((QW - D1) / D1) * 100,
+        vol: 0.0,
+        amount: 0.0,
+      );
+    } else {
+      // QW <= D1: 开盘价=D1, 最高价=M5, 最低价=QW, 收盘价=QW
+      predictionKline = KlineData(
+        tsCode: tsCode,
+        tradeDate: predictionDateStr,
+        open: D1,
+        high: M5,
+        low: QW,
+        close: QW,
+        preClose: D1,
+        change: QW - D1,
+        pctChg: ((QW - D1) / D1) * 100,
+        vol: 0.0,
+        amount: 0.0,
+      );
+    }
+    
+    // 将预测K线添加到列表中
+    klineDataList = List<KlineData>.from(klineDataList)..add(predictionKline);
+    dates = List<String>.from(dates)..add(predictionDateStr);
+    predictionIndex = klineDataList.length - 1; // 最后一个K线是预测K线
+    
+    // 重新计算包含预测收盘价的MA5/MA10/MA20
+    // 获取当前显示的收盘价列表（从data中获取prices）
+    final currentPrices = (data['prices'] as List<dynamic>?)?.cast<double>() ?? [];
+    // 添加预测收盘价
+    final pricesWithPrediction = List<double>.from(currentPrices)..add(predictionKline.close);
+    
+    // 重新计算MA值（包含预测收盘价）
+    final ma5WithPrediction = _calculateMA(pricesWithPrediction, 5);
+    final ma10WithPrediction = _calculateMA(pricesWithPrediction, 10);
+    final ma20WithPrediction = _calculateMA(pricesWithPrediction, 20);
+    
+    // 提取非空的MA值
+    final finalMA5 = ma5WithPrediction.where((e) => e != null).map((e) => e!).toList();
+    final finalMA10 = ma10WithPrediction.where((e) => e != null).map((e) => e!).toList();
+    final finalMA20 = ma20WithPrediction.where((e) => e != null).map((e) => e!).toList();
+
+    return _PredictionChartWidget(
+      klineDataList: klineDataList,
+      dates: dates,
+      ma5: finalMA5,
+      ma10: finalMA10,
+      ma20: finalMA20,
+      kLineType: _kLineType,
+      predictionIndex: predictionIndex,
+      QW: QW,
+      D1: D1,
     );
   }
 
@@ -2084,9 +2165,11 @@ class PredictionChartPainter extends CustomPainter {
   final List<double> ma5;
   final List<double> ma10;
   final List<double> ma20;
-  final double m5Value;
-  final double m10Value;
   final String kLineType;
+  final int? predictionIndex; // 预测K线的索引
+  final double? QW; // 预测值QW
+  final double? D1; // D1值
+  final int? selectedIndex; // 选中的K线索引
 
   static const double leftPadding = 0.0; // 左侧padding（设为0，让图表铺满宽度，参照主图）
   static const double rightPadding = 0.0; // 右侧padding（设为0，让图表铺满宽度，参照主图）
@@ -2102,9 +2185,11 @@ class PredictionChartPainter extends CustomPainter {
     required this.ma5,
     required this.ma10,
     required this.ma20,
-    required this.m5Value,
-    required this.m10Value,
     required this.kLineType,
+    this.predictionIndex,
+    this.QW,
+    this.D1,
+    this.selectedIndex,
   });
 
   @override
@@ -2114,13 +2199,9 @@ class PredictionChartPainter extends CustomPainter {
     final chartWidth = size.width - leftPadding - rightPadding;
     final chartHeight = size.height - topPadding - bottomPadding;
 
-    // 计算价格范围（包括K线的高低价和预测值）
+    // 计算价格范围（包括K线的高低价）
     double maxPrice = klineDataList.map((e) => e.high).reduce(math.max);
     double minPrice = klineDataList.map((e) => e.low).reduce(math.min);
-    
-    // 包含M5和M10预测值
-    maxPrice = math.max(maxPrice, math.max(m5Value, m10Value));
-    minPrice = math.min(minPrice, math.min(m5Value, m10Value));
     
     // 添加一些边距
     final priceRange = maxPrice - minPrice;
@@ -2155,14 +2236,6 @@ class PredictionChartPainter extends CustomPainter {
     if (ma20.isNotEmpty) {
       _drawMALine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, ma20, Colors.purple, false);
     }
-
-    // 绘制M5预测趋势线（虚线，颜色与MA5一致，使用黑色）
-    // M5连线起点改为上一天的ma5的终点
-    _drawPredictionLine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, m5Value, Colors.black, 'M5', ma5);
-
-    // 绘制M10预测趋势线（虚线，颜色与MA10一致，使用黄色）
-    // M10连线起点改为上一天的ma10的终点
-    _drawPredictionLine(canvas, chartWidth, chartHeight, maxPrice, adjustedPriceRange, m10Value, Colors.yellow, 'M10', ma10);
 
     // 绘制图例（在顶部，不与K线重叠）
     _drawLegend(canvas, size);
@@ -2303,9 +2376,28 @@ class PredictionChartPainter extends CustomPainter {
       final openY = topPadding + (maxPrice - data.open) / priceRange * chartHeight;
       final closeY = topPadding + (maxPrice - data.close) / priceRange * chartHeight;
 
+      // 判断是否是预测K线
+      final isPredictionKline = predictionIndex != null && i == predictionIndex;
+      
       // 判断涨跌
       final isRising = data.close >= data.open;
-      final color = isRising ? Colors.red[800]! : Colors.green[700]!;
+      // 预测K线根据QW和D1的关系选择颜色，普通K线使用红绿
+      Color color;
+      if (isPredictionKline) {
+        // 如果QW大于D1使用橙色实体，反之使用蓝色实体
+        final qwValue = QW;
+        final d1Value = D1;
+        if (qwValue != null && d1Value != null && qwValue > d1Value) {
+          color = Colors.orange[700]!;
+        } else {
+          color = Colors.blue[700]!;
+        }
+      } else {
+        color = isRising ? Colors.red[800]! : Colors.green[700]!;
+      }
+      
+      // 判断是否被选中
+      final isSelected = selectedIndex != null && i == selectedIndex;
 
       // 计算实体位置
       final bodyTop = math.min(openY, closeY);
@@ -2340,8 +2432,9 @@ class PredictionChartPainter extends CustomPainter {
         bodyPaint,
       );
 
-      // 如果是涨（红柱），绘制白色内部矩形实现空心效果
-      if (isRising) {
+      // 如果是涨（红柱）且不是预测K线，绘制白色内部矩形实现空心效果
+      // 预测K线不绘制白色内部矩形，保持实心
+      if (isRising && !isPredictionKline) {
         final whitePaint = Paint()
           ..color = Colors.white
           ..style = PaintingStyle.fill;
@@ -2384,6 +2477,23 @@ class PredictionChartPainter extends CustomPainter {
           Offset(x, lowY),
           shadowPaint,
         );
+      }
+      
+      // 如果被选中，绘制高亮边框
+      if (isSelected) {
+        final highlightPaint = Paint()
+          ..color = Colors.yellow
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.0;
+        
+        // 绘制整个K线的高亮边框（包括影线）
+        final highlightRect = Rect.fromLTWH(
+          rectX - 2,
+          math.min(highY, bodyTop) - 2,
+          rectWidth + 4,
+          (math.max(lowY, bodyBottom) - math.min(highY, bodyTop)) + 4,
+        );
+        canvas.drawRect(highlightRect, highlightPaint);
       }
     }
   }
@@ -2450,22 +2560,76 @@ class PredictionChartPainter extends CustomPainter {
         }
       }
     } else {
-      // 绘制实线
-      final path = Path();
-      
+      // 绘制平滑的实线（使用贝塞尔曲线）
+      // 收集所有有效的点
+      List<Offset> validPoints = [];
       for (int i = 0; i < maValues.length; i++) {
         final priceIndex = maStartIndex + i;
-        // 确保第一个和最后一个点对齐到K线中心（参照主图）
         final x = priceIndex * dynamicCandleTotalWidth + dynamicCandleWidth / 2;
         final y = topPadding + (maxPrice - maValues[i]) / priceRange * chartHeight;
-
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
+        validPoints.add(Offset(x, y));
+      }
+      
+      if (validPoints.isEmpty) return;
+      
+      final path = Path();
+      
+      if (validPoints.length == 1) {
+        path.moveTo(validPoints[0].dx, validPoints[0].dy);
+        path.lineTo(validPoints[0].dx, validPoints[0].dy);
+      } else if (validPoints.length == 2) {
+        path.moveTo(validPoints[0].dx, validPoints[0].dy);
+        path.lineTo(validPoints[1].dx, validPoints[1].dy);
+      } else {
+        // 多个点，使用贝塞尔曲线平滑连接
+        path.moveTo(validPoints[0].dx, validPoints[0].dy);
+        
+        for (int i = 1; i < validPoints.length; i++) {
+          final prev = validPoints[i - 1];
+          final curr = validPoints[i];
+          
+          if (i == 1) {
+            // 第二个点：使用二次贝塞尔曲线
+            final controlX = (prev.dx + curr.dx) / 2;
+            final controlY = (prev.dy + curr.dy) / 2;
+            path.quadraticBezierTo(controlX, controlY, curr.dx, curr.dy);
+          } else if (i == validPoints.length - 1) {
+            // 最后一个点：使用二次贝塞尔曲线
+            final controlX = (prev.dx + curr.dx) / 2;
+            final controlY = (prev.dy + curr.dy) / 2;
+            path.quadraticBezierTo(controlX, controlY, curr.dx, curr.dy);
+          } else {
+            // 中间点：使用三次贝塞尔曲线，计算更平滑的控制点
+            final prevPoint = validPoints[i - 1];
+            final currentPoint = validPoints[i];
+            final nextPoint = validPoints[i + 1];
+            
+            // 计算方向向量
+            final dx1 = currentPoint.dx - prevPoint.dx;
+            final dy1 = currentPoint.dy - prevPoint.dy;
+            final dx2 = nextPoint.dx - currentPoint.dx;
+            final dy2 = nextPoint.dy - currentPoint.dy;
+            
+            // 使用张力系数控制曲线的平滑程度
+            final tension = 0.3;
+            final cp1 = Offset(
+              prevPoint.dx + dx1 * tension,
+              prevPoint.dy + dy1 * tension,
+            );
+            final cp2 = Offset(
+              currentPoint.dx - dx2 * tension,
+              currentPoint.dy - dy2 * tension,
+            );
+            
+            path.cubicTo(
+              cp1.dx, cp1.dy,
+              cp2.dx, cp2.dy,
+              currentPoint.dx, currentPoint.dy,
+            );
+          }
         }
       }
-
+      
       canvas.drawPath(path, linePaint);
     }
   }
@@ -2573,8 +2737,6 @@ class PredictionChartPainter extends CustomPainter {
       if (ma5.isNotEmpty) {'label': 'MA5', 'color': Colors.black},
       if (ma10.isNotEmpty) {'label': 'MA10', 'color': Colors.yellow},
       if (ma20.isNotEmpty) {'label': 'MA20', 'color': Colors.purple},
-      {'label': 'M5预测', 'color': Colors.black}, // M5预测使用黑色，与MA5一致
-      {'label': 'M10预测', 'color': Colors.yellow}, // M10预测使用黄色，与MA10一致
     ];
 
     final textStyle = TextStyle(
@@ -2627,9 +2789,360 @@ class PredictionChartPainter extends CustomPainter {
         oldDelegate.ma5 != ma5 ||
         oldDelegate.ma10 != ma10 ||
         oldDelegate.ma20 != ma20 ||
-        oldDelegate.m5Value != m5Value ||
-        oldDelegate.m10Value != m10Value ||
-        oldDelegate.kLineType != kLineType;
+        oldDelegate.kLineType != kLineType ||
+        oldDelegate.predictionIndex != predictionIndex ||
+        oldDelegate.QW != QW ||
+        oldDelegate.D1 != D1 ||
+        oldDelegate.selectedIndex != selectedIndex;
+  }
+}
+
+// 预测图表Widget（支持选中功能）
+class _PredictionChartWidget extends StatefulWidget {
+  final List<KlineData> klineDataList;
+  final List<String> dates;
+  final List<double> ma5;
+  final List<double> ma10;
+  final List<double> ma20;
+  final String kLineType;
+  final int? predictionIndex;
+  final double? QW;
+  final double? D1;
+
+  const _PredictionChartWidget({
+    required this.klineDataList,
+    required this.dates,
+    required this.ma5,
+    required this.ma10,
+    required this.ma20,
+    required this.kLineType,
+    this.predictionIndex,
+    this.QW,
+    this.D1,
+  });
+
+  @override
+  State<_PredictionChartWidget> createState() => _PredictionChartWidgetState();
+}
+
+class _PredictionChartWidgetState extends State<_PredictionChartWidget> {
+  int? _selectedIndex;
+  Timer? _autoResetTimer;
+  KlineData? _selectedKlineData;
+  Map<String, double?> _selectedMaValues = {};
+
+  @override
+  void dispose() {
+    _autoResetTimer?.cancel();
+    super.dispose();
+  }
+  
+  // 计算选中K线的均线值
+  Map<String, double?> _calculateMaValuesForIndex(int index) {
+    if (index < 0 || index >= widget.klineDataList.length) {
+      return {'ma5': null, 'ma10': null, 'ma20': null};
+    }
+    
+    Map<String, double?> maValues = {};
+    
+    // 计算MA5
+    if (index >= 4) {
+      final last5 = widget.klineDataList.sublist(index - 4, index + 1);
+      maValues['ma5'] = last5.map((e) => e.close).reduce((a, b) => a + b) / 5;
+    } else {
+      maValues['ma5'] = null;
+    }
+    
+    // 计算MA10
+    if (index >= 9) {
+      final last10 = widget.klineDataList.sublist(index - 9, index + 1);
+      maValues['ma10'] = last10.map((e) => e.close).reduce((a, b) => a + b) / 10;
+    } else {
+      maValues['ma10'] = null;
+    }
+    
+    // 计算MA20
+    if (index >= 19) {
+      final last20 = widget.klineDataList.sublist(index - 19, index + 1);
+      maValues['ma20'] = last20.map((e) => e.close).reduce((a, b) => a + b) / 20;
+    } else {
+      maValues['ma20'] = null;
+    }
+    
+    return maValues;
+  }
+
+  // 根据触摸位置找到对应的K线数据点
+  int? _findDataIndexAtPosition(double x, Size size) {
+    if (widget.klineDataList.isEmpty) return null;
+
+    final chartWidth = size.width;
+    const candleWidth = 7.0;
+    const candleSpacing = 1.0;
+    double dynamicCandleWidth = candleWidth;
+    double dynamicCandleSpacing = candleSpacing;
+
+    if (widget.klineDataList.length == 1) {
+      dynamicCandleWidth = chartWidth;
+      dynamicCandleSpacing = 0;
+    } else if (widget.klineDataList.length > 1) {
+      final availableWidthPerCandle = chartWidth / widget.klineDataList.length;
+      final totalRatio = candleWidth + candleSpacing;
+      dynamicCandleWidth = (candleWidth / totalRatio) * availableWidthPerCandle;
+      dynamicCandleSpacing = (candleSpacing / totalRatio) * availableWidthPerCandle;
+    }
+
+    final candleTotalWidth = dynamicCandleWidth + dynamicCandleSpacing;
+    final index = (x / candleTotalWidth).round();
+    if (index >= 0 && index < widget.klineDataList.length) {
+      return index;
+    }
+    return null;
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final size = renderBox.size;
+    final index = _findDataIndexAtPosition(details.localPosition.dx, size);
+    if (index != null && index >= 0 && index < widget.klineDataList.length) {
+      final selectedData = widget.klineDataList[index];
+      final maValues = _calculateMaValuesForIndex(index);
+      setState(() {
+        _selectedIndex = index;
+        _selectedKlineData = selectedData;
+        _selectedMaValues = maValues;
+      });
+      _autoResetTimer?.cancel();
+      _autoResetTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() {
+            _selectedIndex = null;
+            _selectedKlineData = null;
+            _selectedMaValues = {};
+          });
+        }
+      });
+    }
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final size = renderBox.size;
+    final index = _findDataIndexAtPosition(details.localPosition.dx, size);
+    if (index != null && index >= 0 && index < widget.klineDataList.length) {
+      final selectedData = widget.klineDataList[index];
+      final maValues = _calculateMaValuesForIndex(index);
+      setState(() {
+        _selectedIndex = index;
+        _selectedKlineData = selectedData;
+        _selectedMaValues = maValues;
+      });
+      _autoResetTimer?.cancel();
+      _autoResetTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() {
+            _selectedIndex = null;
+            _selectedKlineData = null;
+            _selectedMaValues = {};
+          });
+        }
+      });
+    }
+  }
+  
+  // 构建MA值显示Widget（带趋势箭头）
+  Widget _buildMaValue(String label, double? value, Color color) {
+    if (value == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '-',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[400],
+            ),
+          ),
+        ],
+      );
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.rectangle,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value.toStringAsFixed(2),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  // 构建K线价格信息显示
+  Widget _buildKlineInfo(KlineData? klineData) {
+    if (klineData == null) {
+      return const SizedBox.shrink();
+    }
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: _buildInfoItem('开盘', '¥${klineData.open.toStringAsFixed(2)}'),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: _buildInfoItem('收盘', '¥${klineData.close.toStringAsFixed(2)}'),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: _buildInfoItem('最高', '¥${klineData.high.toStringAsFixed(2)}'),
+        ),
+        _buildInfoItem('最低', '¥${klineData.low.toStringAsFixed(2)}'),
+      ],
+    );
+  }
+  
+  Widget _buildInfoItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // K线图表
+        GestureDetector(
+          onTapDown: _handleTapDown,
+          onPanUpdate: _handlePanUpdate,
+          child: CustomPaint(
+            painter: PredictionChartPainter(
+              klineDataList: widget.klineDataList,
+              dates: widget.dates,
+              ma5: widget.ma5,
+              ma10: widget.ma10,
+              ma20: widget.ma20,
+              kLineType: widget.kLineType,
+              predictionIndex: widget.predictionIndex,
+              QW: widget.QW,
+              D1: widget.D1,
+              selectedIndex: _selectedIndex,
+            ),
+            size: Size.infinite,
+          ),
+        ),
+        // 显示MA值和K线信息（选中时，覆盖在图表上方）
+        if (_selectedKlineData != null)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(8),
+                  bottomRight: Radius.circular(8),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // MA值显示
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _buildMaValue('MA5', _selectedMaValues['ma5'], Colors.black),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _buildMaValue('MA10', _selectedMaValues['ma10'], Colors.yellow[700]!),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _buildMaValue('MA20', _selectedMaValues['ma20'], Colors.purple),
+                        ),
+                      ],
+                    ),
+                    // K线价格信息（在MA后面）
+                    _buildKlineInfo(_selectedKlineData),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
