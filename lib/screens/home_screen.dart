@@ -11,6 +11,7 @@ import 'stock_detail_screen.dart';
 import 'stock_search_screen.dart';
 import 'favorite_group_edit_screen.dart';
 import 'stock_selector_screen.dart';
+import '../services/stock_selector_singleton.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -550,11 +551,8 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               icon: const Icon(Icons.filter_list, size: 20),
               onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const StockSelectorScreen(),
-                  ),
-                ).then((result) {
+                // 使用单例导航，保持筛选页面状态
+                StockSelectorSingleton.navigateToFilterScreen(context).then((result) {
                   // 如果创建了新分组，刷新分组列表和股票数据
                   if (result == true) {
                     _loadData();

@@ -19,12 +19,19 @@ import 'stock_ranking_detail_screen.dart';
 import '../services/favorite_group_service.dart';
 import '../models/favorite_group.dart';
 import '../services/stock_info_service.dart';
+import '../services/filter_overlay_service.dart';
+import '../services/stock_selector_singleton.dart';
 
 class StockSelectorScreen extends StatefulWidget {
   const StockSelectorScreen({super.key});
 
   @override
   State<StockSelectorScreen> createState() => _StockSelectorScreenState();
+  
+  // 使用单例key，保持状态
+  static Widget getInstance() {
+    return StockSelectorScreen(key: StockSelectorSingleton.screenKey);
+  }
 }
 
 class _StockSelectorScreenState extends State<StockSelectorScreen> {
@@ -40,12 +47,154 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
   final ScrollController _scrollController = ScrollController(); // 滚动控制器
   bool _isDetailsExpanded = false; // 详细条件是否展开
   bool _hasNewGroupCreated = false; // 是否创建了新分组
+  bool _isFilteringInBackground = false; // 是否在后台筛选
 
   @override
   void initState() {
     super.initState();
     _updatePoolInfo();
-    _loadCombinations();
+    // 先加载组合列表，然后检查筛选状态
+    _loadCombinations().then((_) {
+      _checkFilterResult();
+      // 延迟检查筛选状态，确保浮窗服务已经初始化
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _checkFilteringStatus();
+      });
+    });
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 当页面被重新显示时（比如从浮窗点击进入），检查筛选状态
+    Future.microtask(() {
+      _checkFilteringStatus();
+    });
+  }
+  
+  /// 检查是否有筛选结果需要恢复
+  void _checkFilterResult() {
+    final overlayService = FilterOverlayService();
+    final lastResult = overlayService.getLastFilterResult();
+    if (lastResult != null) {
+      // 延迟加载，确保页面已经构建完成
+      Future.microtask(() {
+        if (mounted) {
+          setState(() {
+            _stockRankings = lastResult;
+            _isLoading = false;
+          });
+        }
+      });
+    }
+  }
+  
+  /// 检查筛选状态（是否正在筛选）
+  void _checkFilteringStatus() async {
+    final overlayService = FilterOverlayService();
+    if (overlayService.isFiltering) {
+      // 如果正在筛选，恢复筛选状态
+      // 等待组合列表加载完成，然后通过ID匹配组合
+      if (_combinations.isEmpty) {
+        await _loadCombinations();
+      }
+      
+      // 使用更长的延迟，确保浮窗服务状态已经稳定
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) {
+          final overlayService = FilterOverlayService();
+          setState(() {
+            _isLoading = true;
+            _isFilteringInBackground = true;
+            _currentProgressText = overlayService.progressText.isNotEmpty 
+                ? overlayService.progressText 
+                : '正在筛选中...';
+            _currentStockIndex = overlayService.currentIndex;
+            _totalStocks = overlayService.totalStocks;
+            // 恢复筛选条件组合：通过ID在_combinations中查找匹配的组合
+            if (overlayService.currentCombination != null) {
+              final combinationId = overlayService.currentCombination!.id;
+              try {
+                _selectedCombination = _combinations.firstWhere(
+                  (c) => c.id == combinationId,
+                );
+              } catch (e) {
+                // 如果在列表中找不到，打印警告但保持当前选择
+                print('⚠️ 无法在组合列表中找到ID为 $combinationId 的组合: $e');
+              }
+            }
+          });
+        }
+      });
+    }
+  }
+  
+  /// 更新筛选进度（供浮窗服务调用）
+  void updateFilterProgress(String text, int current, int total) {
+    if (mounted) {
+      setState(() {
+        _currentProgressText = text;
+        _currentStockIndex = current;
+        _totalStocks = total;
+        _isLoading = true;
+        _isFilteringInBackground = true;
+      });
+    }
+  }
+  
+  /// 恢复筛选状态（供浮窗服务调用）
+  void restoreFilteringState({
+    required String progressText,
+    required int currentIndex,
+    required int totalStocks,
+    ConditionCombination? combination,
+  }) async {
+    // 确保组合列表已加载
+    if (_combinations.isEmpty) {
+      await _loadCombinations();
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _isFilteringInBackground = true;
+        _currentProgressText = progressText;
+        _currentStockIndex = currentIndex;
+        _totalStocks = totalStocks;
+        // 通过ID在_combinations中查找匹配的组合，避免对象实例不匹配的问题
+        if (combination != null) {
+          if (_selectedCombination == null || _selectedCombination!.id != combination.id) {
+            _selectedCombination = _combinations.firstWhere(
+              (c) => c.id == combination.id,
+              orElse: () => combination,
+            );
+          }
+        }
+      });
+    }
+  }
+  
+  /// 恢复筛选结果（供浮窗服务调用）
+  void restoreFilterResult(List<StockRanking> rankings) {
+    if (mounted) {
+      setState(() {
+        _stockRankings = rankings;
+        _isLoading = false;
+        _isFilteringInBackground = false;
+        _currentProgressText = '筛选完成！共找到 ${rankings.length} 只符合条件的股票';
+      });
+    }
+  }
+  
+  /// 恢复筛选错误状态（供浮窗服务调用）
+  void restoreFilterError(String errorMessage) {
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _isFilteringInBackground = false;
+        _currentProgressText = '筛选失败: $errorMessage';
+      });
+    }
   }
 
   @override
@@ -194,10 +343,71 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
     );
   }
 
+  /// 显示筛选浮窗并在后台继续筛选
+  void _showFilterOverlayAndContinue() {
+    if (_selectedCombination == null) return;
+    
+    final overlayService = FilterOverlayService();
+    final combination = _selectedCombination!;
+    
+    // 显示浮窗（使用当前页面的context）
+    overlayService.showOverlay(
+      context,
+      combination: combination,
+      onProgress: null,
+      onComplete: (rankings) {
+        // 筛选完成时保存结果到浮窗服务
+        overlayService.complete(rankings);
+      },
+      onError: null,
+    );
+    
+    // 不需要设置导航回调，浮窗会直接使用单例导航
+    // 这样可以确保导航逻辑统一
+    
+    // 标记为后台筛选
+    _isFilteringInBackground = true;
+    
+    // 在后台继续筛选（不依赖页面状态）
+    StockFilterService.filterStocksWithCombination(
+      combination: combination,
+      onProgress: (current, total) {
+        overlayService.updateProgress(
+          '正在筛选股票... ($current/$total)',
+          current,
+          total,
+        );
+      },
+    ).then((rankings) {
+      // 筛选完成
+      _isFilteringInBackground = false;
+      overlayService.complete(rankings);
+    }).catchError((e) {
+      // 筛选出错
+      _isFilteringInBackground = false;
+      overlayService.error(e.toString());
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
+        // 如果正在筛选，显示浮窗并继续在后台筛选
+        if (_isLoading || _isFilteringInBackground) {
+          // 如果浮窗还没有显示，显示它
+          final overlayService = FilterOverlayService();
+          if (!overlayService.isShowing && _selectedCombination != null) {
+            _showFilterOverlayAndContinue();
+          }
+          // 允许退出页面
+          if (_hasNewGroupCreated) {
+            Navigator.of(context).pop(true);
+            return false;
+          }
+          return true;
+        }
+        
         // 如果创建了新分组，返回true通知首页刷新分组列表
         if (_hasNewGroupCreated) {
           Navigator.of(context).pop(true);
@@ -455,7 +665,9 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<ConditionCombination>(
-          value: _selectedCombination,
+          value: _selectedCombination != null && _combinations.any((c) => c.id == _selectedCombination!.id)
+              ? _combinations.firstWhere((c) => c.id == _selectedCombination!.id)
+              : null,
           decoration: const InputDecoration(
             labelText: '条件组合',
             border: OutlineInputBorder(),
