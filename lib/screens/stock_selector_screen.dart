@@ -15,6 +15,7 @@ import 'stock_pool_config_screen.dart';
 import 'condition_management_screen.dart';
 import 'stock_detail_screen.dart';
 import 'stock_search_screen.dart';
+import 'stock_ranking_detail_screen.dart';
 import '../services/favorite_group_service.dart';
 import '../models/favorite_group.dart';
 import '../services/stock_info_service.dart';
@@ -244,6 +245,24 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
                 },
                 tooltip: '股票池配置',
               ),
+              // 排名详情按钮（仅在有筛选结果时显示）
+              if (_stockRankings.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.leaderboard),
+                  onPressed: () async {
+                    if (_selectedCombination != null) {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => StockRankingDetailScreen(
+                            stockRankings: _stockRankings,
+                            combination: _selectedCombination!,
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  tooltip: '排名详情',
+                ),
               // 一键添加分组按钮（仅在有筛选结果时显示）
               if (_stockRankings.isNotEmpty)
                 IconButton(
