@@ -52,6 +52,10 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
   @override
   void initState() {
     super.initState();
+    // 进入筛选页面时，立即隐藏浮窗（强制隐藏，即使正在筛选也隐藏）
+    final overlayService = FilterOverlayService();
+    overlayService.hideOverlay(force: true);
+    
     _updatePoolInfo();
     // 先加载组合列表，然后检查筛选状态
     _loadCombinations().then((_) {
@@ -66,6 +70,10 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // 进入筛选页面时，隐藏浮窗（强制隐藏，即使正在筛选也隐藏）
+    final overlayService = FilterOverlayService();
+    overlayService.hideOverlay(force: true);
+    
     // 当页面被重新显示时（比如从浮窗点击进入），检查筛选状态
     Future.microtask(() {
       _checkFilteringStatus();
@@ -83,6 +91,9 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
           setState(() {
             _stockRankings = lastResult;
             _isLoading = false;
+            _isFilteringInBackground = false;
+            // 清除错误信息，显示成功信息
+            _currentProgressText = '筛选完成！共找到 ${lastResult.length} 只符合条件的股票';
           });
         }
       });
@@ -181,6 +192,7 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
         _stockRankings = rankings;
         _isLoading = false;
         _isFilteringInBackground = false;
+        // 确保显示成功信息，而不是错误信息
         _currentProgressText = '筛选完成！共找到 ${rankings.length} 只符合条件的股票';
       });
     }
@@ -395,9 +407,12 @@ class _StockSelectorScreenState extends State<StockSelectorScreen> {
       onWillPop: () async {
         // 如果正在筛选，显示浮窗并继续在后台筛选
         if (_isLoading || _isFilteringInBackground) {
-          // 如果浮窗还没有显示，显示它
           final overlayService = FilterOverlayService();
-          if (!overlayService.isShowing && _selectedCombination != null) {
+          // 如果筛选正在进行但浮窗没有显示，恢复显示浮窗
+          if (overlayService.isFiltering && !overlayService.isShowing) {
+            overlayService.restoreOverlayIfFiltering(context);
+          } else if (!overlayService.isShowing && _selectedCombination != null) {
+            // 如果浮窗还没有显示，显示它
             _showFilterOverlayAndContinue();
           }
           // 允许退出页面

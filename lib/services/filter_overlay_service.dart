@@ -95,6 +95,9 @@ class FilterOverlayService {
   void error(String errorMessage) {
     _isFiltering = false;
     
+    // 不保存错误结果，只保存成功的结果
+    // _lastFilterResult 保持为之前成功的结果（如果有）
+    
     // 更新筛选页面状态（如果存在）
     final screenState = StockSelectorSingleton.screenKey.currentState;
     if (screenState != null) {
@@ -114,11 +117,12 @@ class FilterOverlayService {
   }
 
   /// 隐藏浮窗
-  void hideOverlay() {
+  /// [force] 是否强制隐藏，即使正在筛选也隐藏（进入筛选页面时使用）
+  void hideOverlay({bool force = false}) {
     if (!_isShowing || _overlayEntry == null) return;
     
-    // 如果正在筛选，不要隐藏浮窗
-    if (_isFiltering) {
+    // 如果正在筛选且不是强制隐藏，不要隐藏浮窗
+    if (_isFiltering && !force) {
       print('⚠️ 正在筛选中，不隐藏浮窗');
       return;
     }
@@ -126,12 +130,27 @@ class FilterOverlayService {
     _overlayEntry!.remove();
     _overlayEntry = null;
     _isShowing = false;
-    _context = null;
-    _onProgress = null;
-    _onComplete = null;
-    _onError = null;
-    _currentCombination = null;
-    _onNavigateCallback = null;
+    // 注意：不重置以下状态，因为筛选可能还在进行
+    // _context, _onProgress, _onComplete, _onError, _currentCombination, _isFiltering 都保留
+    // 这样可以在需要时恢复浮窗显示
+  }
+  
+  /// 恢复浮窗显示（当筛选正在进行但浮窗被隐藏时使用）
+  void restoreOverlayIfFiltering(BuildContext context) {
+    // 如果筛选正在进行但浮窗没有显示，恢复显示
+    if (_isFiltering && !_isShowing && _currentCombination != null) {
+      // 更新context
+      _context = context;
+      
+      // 初始化位置（屏幕右下角）
+      final screenSize = MediaQuery.of(context).size;
+      _position = Offset(screenSize.width - 60, screenSize.height - 140);
+      
+      // 重新创建浮窗Entry
+      _overlayEntry = _createOverlayEntry();
+      Overlay.of(context).insert(_overlayEntry!);
+      _isShowing = true;
+    }
   }
   
   /// 是否正在筛选
@@ -276,13 +295,13 @@ class FilterOverlayService {
       return;
     }
     
-    // 不要隐藏浮窗，保持显示
-    // hideOverlay();
-    
     // 使用单例导航到筛选页面（确保使用正确的context）
     Future.microtask(() {
       if (ctx != null && ctx.mounted) {
         StockSelectorSingleton.navigateToFilterScreen(ctx).then((_) {
+          // 只要进入筛选页面，就隐藏浮窗（强制隐藏，即使正在筛选也隐藏）
+          hideOverlay(force: true);
+          
           // 导航完成后，延迟恢复筛选页面状态（确保页面已经构建完成）
           Future.delayed(const Duration(milliseconds: 500), () {
             _restoreFilterScreenState();
@@ -312,6 +331,7 @@ class FilterOverlayService {
   
   /// 完成筛选时保存结果
   void complete(List<StockRanking> rankings) {
+    // 保存成功的结果（只有在成功时才保存）
     _lastFilterResult = rankings;
     _isFiltering = false;
     
