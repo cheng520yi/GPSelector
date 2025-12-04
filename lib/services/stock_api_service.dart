@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/stock_info.dart';
 import '../models/kline_data.dart';
 import '../models/macd_data.dart';
@@ -24,13 +25,43 @@ class StockApiService {
   static const String iFinDDateSequenceUrl = 'https://quantapi.51ifind.com/api/v1/date_sequence';
   
   // iFinD token刷新接口配置
-  static const String iFinDTokenRefreshUrl = 'https://quantapi.51ifind.com/api/v1/get_access_token';
+  static const String iFinDTokenRefreshUrl = 'https://ft.10jqka.com.cn/api/v1/get_access_token';
   static const String iFinDRefreshToken = 'eyJzaWduX3RpbWUiOiIyMDI1LTExLTExIDE1OjU2OjU4In0=.eyJ1aWQiOiI4MTk2MjMzODEiLCJ1c2VyIjp7ImFjY2Vzc1Rva2VuIjoiYTM4ZTk2ZjJiOTExYzYwMDYxZDNiZTZkNjcxZmMyNzA1NjhlYjJiMC5zaWduc19PREU1TmpJek16Z3giLCJhY2Nlc3NUb2tlbkV4cGlyZWRUaW1lIjoiMjAyNS0xMS0xMSAxNTo1Njo1NyIsImFjY291bnQiOiJzaGl5b25nMTUyNyIsImF1dGhVc2VySW5mbyI6e30sImNvZGVDU0kiOltdLCJjb2RlWnpBdXRoIjpbXSwiaGFzQUlQcmVkaWN0IjpmYWxzZSwiaGFzQUlUYWxrIjpmYWxzZSwiaGFzQ0lDQyI6ZmFsc2UsImhhc0NTSSI6ZmFsc2UsImhhc0V2ZW50RHJpdmUiOmZhbHNlLCJoYXNGVFNFIjpmYWxzZSwiaGFzRmFzdCI6ZmFsc2UsImhhc0Z1bmRWYWx1YXRpb24iOmZhbHNlLCJoYXNISyI6dHJ1ZSwiaGFzTE1FIjpmYWxzZSwiaGFzTGV2ZWwyIjpmYWxzZSwiaGFzUmVhbENNRSI6ZmFsc2UsImhhc1RyYW5zZmVyIjpmYWxzZSwiaGFzVVMiOmZhbHNlLCJoYXNVU0FJbmRleCI6ZmFsc2UsImhhc1VTREVCVCI6ZmFsc2UsIm1hcmtldEF1dGgiOnsiRENFIjpmYWxzZX0sIm1heE9uTGluZSI6MSwibm9EaXNrIjpmYWxzZSwicHJvZHVjdFR5cGUiOiJTVVBFUkNPTU1BTkRQUk9EVUNUIiwicmVmcmVzaFRva2VuIjoiIiwicmVmcmVzaFRva2VuRXhwaXJlZFRpbWUiOiIyMDI1LTEyLTExIDE1OjUyOjU3Iiwic2Vzc3Npb24iOiI5NjhhYTM0YTFlMTVhYjA3YTY1MGQ2OWY0NTA0ODQxMSIsInNpZEluZm8iOns2NDoiMTExMTExMTExMTExMTExMTExMTExMTExIiwxOiIxMDEiLDI6IjEiLDY3OiIxMDExMTExMTExMTExMTExMTExMTExMTEiLDM6IjEiLDY5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiw1OiIxIiw2OiIxIiw3MToiMTExMTExMTExMTExMTExMTExMTExMTAwIiw3OiIxMTExMTExMTExMSIsODoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLDEzODoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTM5OiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDA6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDE0MToiMTExMTExMTExMTExMTExMTExMTExMTExMSIsMTQyOiIxMTExMTExMTExMTExMTExMTExMTExMTExIiwxNDM6IjExIiw4MDoiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MToiMTExMTExMTExMTExMTExMTExMTExMTExIiw4MjoiMTExMTExMTExMTExMTExMTExMTAxMTAiLDgzOiIxMTExMTExMTExMTExMTExMTExMDAwMDAwIiw4NToiMDExMTExMTExMTExMTExMTExMTExMTExIiw4NzoiMTExMTExMTEwMDExMTExMDExMTExMTExIiw4OToiMTExMTExMTEwMTEwMTAwMDAwMDAxMTExIiw5MDoiMTExMTEwMTExMTExMTExMTEwMDAxMTExMTAiLDkzOiIxMTExMTExMTExMTExMTExMTAwMDAxMTExIiw5NDoiMTExMTExMTExMTExMTExMTExMTExMTExMSIsOTY6IjExMTExMTExMTExMTExMTExMTExMTExMTEiLDk5OiIxMDAiLDEwMDoiMTExMTAxMTExMTExMTExMTExMCIsMTAyOiIxIiw0NDoiMTEiLDEwOToiMSIsNTM6IjExMTExMTExMTExMTExMTExMTExMTExMSIsNTQ6IjExMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiw1NzoiMDAwMDAwMDAwMDAwMDAwMDAwMDAxMDAwMDAwMDAiLDYyOiIxMTExMTExMTExMTExMTExMTExMTExMTEiLDYzOiIxMTExMTExMTExMTExMTExMTExMTExMTEifSwidGltZXN0YW1wIjoiMTc2Mjg0NzgxNzk5MiIsInRyYW5zQXV0aCI6ZmFsc2UsInR0bFZhbHVlIjowLCJ1aWQiOiI4MTk2MjMzODEiLCJ1c2VyVHlwZSI6IkZSRUVJQUwiLCJ3aWZpbmRMaW1pdE1hcCI6e319fQ==.C2836514003219A92090FD738590F5D83C65F0FA8247F3DDCA11176FBCDD944F';
   // 当前access_token（动态刷新）
   static String _currentAccessToken = 'b0415c25aa67e572b8e6ae2d0830f35d0667b978.signs_ODE5NjIzMzgx';
   
+  // SharedPreferences key
+  static const String _prefsAccessTokenKey = 'ifind_access_token';
+  
   // 正在刷新token的标志，避免并发刷新
   static bool _isRefreshingToken = false;
+  
+  // 从本地加载保存的access_token
+  static Future<void> loadAccessTokenFromLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString(_prefsAccessTokenKey);
+      if (savedToken != null && savedToken.isNotEmpty) {
+        _currentAccessToken = savedToken;
+        print('✅ 从本地加载access_token成功: ${savedToken.substring(0, 20)}...');
+      } else {
+        print('ℹ️ 本地未找到保存的access_token，使用默认值');
+      }
+    } catch (e) {
+      print('❌ 从本地加载access_token失败: $e');
+    }
+  }
+  
+  // 保存access_token到本地
+  static Future<void> saveAccessTokenToLocal(String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsAccessTokenKey, token);
+      print('✅ access_token已保存到本地');
+    } catch (e) {
+      print('❌ 保存access_token到本地失败: $e');
+    }
+  }
   
   // 通过refresh_token获取新的access_token
   static Future<String?> refreshAccessToken() async {
@@ -64,37 +95,33 @@ class StockApiService {
       print('🔍 Token刷新HTTP响应体: ${response.body}');
       ConsoleCaptureService.instance.capturePrint('🔍 Token刷新HTTP响应状态码: ${response.statusCode}');
       
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        
-        if (responseData['errorcode'] == 0) {
-          final data = responseData['data'];
-          if (data != null) {
-            final String newAccessToken = data['access_token'] ?? '';
-            final String expiredTimeStr = data['expired_time'] ?? '';
-            
-            if (newAccessToken.isNotEmpty) {
-              _currentAccessToken = newAccessToken;
-              print('✅ Token刷新成功，新token: ${newAccessToken.substring(0, 20)}...');
-              if (expiredTimeStr.isNotEmpty) {
-                print('✅ Token过期时间: $expiredTimeStr');
-              }
-              ConsoleCaptureService.instance.capturePrint('✅ Token刷新成功');
-              return newAccessToken;
-            } else {
-              print('❌ Token刷新响应中access_token为空');
-              return null;
-            }
-          } else {
-            print('❌ Token刷新响应中data为空');
-            return null;
-          }
-        } else {
-          print('❌ Token刷新API返回错误: ${responseData['errorcode']} - ${responseData['errmsg']}');
-          return null;
+      if (response.statusCode != 200) {
+        throw Exception('HTTP错误: ${response.statusCode}');
+      }
+      
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) {
+        throw Exception('无效的响应格式');
+      }
+      
+      if (data['errorcode'] != 0) {
+        throw Exception('Token获取失败: ${data['errmsg']}');
+      }
+      
+      final accessToken = data['data']['access_token'] as String?;
+      
+      if (accessToken != null && accessToken.isNotEmpty) {
+        _currentAccessToken = accessToken;
+        // 保存到本地
+        await saveAccessTokenToLocal(accessToken);
+        print('✅ Token刷新成功，新token: ${accessToken.substring(0, 20)}...');
+        if (data['data']['expired_time'] != null) {
+          print('✅ Token过期时间: ${data['data']['expired_time']}');
         }
+        ConsoleCaptureService.instance.capturePrint('✅ Token刷新成功');
+        return accessToken;
       } else {
-        print('❌ Token刷新HTTP请求失败: ${response.statusCode}');
+        print('❌ Token刷新响应中access_token为空');
         return null;
       }
     } catch (e) {

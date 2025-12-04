@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'services/log_service.dart';
 import 'services/console_capture_service.dart';
+import 'services/stock_api_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
   // 添加一些测试日志
   final logService = LogService.instance;
   logService.info('APP', '应用程序启动');
@@ -11,6 +14,9 @@ void main() {
   
   // 启动控制台捕获服务
   ConsoleCaptureService.instance.startCapture();
+  
+  // 从本地加载保存的access_token
+  await StockApiService.loadAccessTokenFromLocal();
   
   // 添加一些控制台输出测试
   print('🚀 应用程序启动中...');
