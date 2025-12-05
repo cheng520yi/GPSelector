@@ -21,6 +21,12 @@ class RankingConfigService {
         DeviationRange(min: 2, max: 4, score: 4),
         DeviationRange(min: 4, max: double.infinity, score: 3),
       ],
+      macdScoreConfig: MacdScoreConfig(
+        allThreeSatisfied: 5,
+        twoSatisfied: 3,
+        oneSatisfied: 1,
+        noneSatisfied: 0,
+      ),
     );
   }
   
@@ -56,16 +62,19 @@ class RankingConfigService {
 class RankingConfig {
   final List<MarketValueRange> marketValueRanges;
   final List<DeviationRange> bollDeviationRanges;
+  final MacdScoreConfig macdScoreConfig;
   
   RankingConfig({
     required this.marketValueRanges,
     required this.bollDeviationRanges,
+    required this.macdScoreConfig,
   });
   
   Map<String, dynamic> toJson() {
     return {
       'marketValueRanges': marketValueRanges.map((r) => r.toJson()).toList(),
       'bollDeviationRanges': bollDeviationRanges.map((r) => r.toJson()).toList(),
+      'macdScoreConfig': macdScoreConfig.toJson(),
     };
   }
   
@@ -77,16 +86,26 @@ class RankingConfig {
       bollDeviationRanges: (json['bollDeviationRanges'] as List<dynamic>)
           .map((r) => DeviationRange.fromJson(r))
           .toList(),
+      macdScoreConfig: json['macdScoreConfig'] != null
+          ? MacdScoreConfig.fromJson(json['macdScoreConfig'])
+          : MacdScoreConfig(
+              allThreeSatisfied: 5,
+              twoSatisfied: 3,
+              oneSatisfied: 1,
+              noneSatisfied: 0,
+            ),
     );
   }
   
   RankingConfig copyWith({
     List<MarketValueRange>? marketValueRanges,
     List<DeviationRange>? bollDeviationRanges,
+    MacdScoreConfig? macdScoreConfig,
   }) {
     return RankingConfig(
       marketValueRanges: marketValueRanges ?? this.marketValueRanges,
       bollDeviationRanges: bollDeviationRanges ?? this.bollDeviationRanges,
+      macdScoreConfig: macdScoreConfig ?? this.macdScoreConfig,
     );
   }
 }
@@ -145,6 +164,53 @@ class DeviationRange {
       min: (json['min'] as num).toDouble(),
       max: json['max'] == 'infinity' ? double.infinity : (json['max'] as num).toDouble(),
       score: json['score'] as int,
+    );
+  }
+}
+
+/// MACD评分配置
+class MacdScoreConfig {
+  final int allThreeSatisfied; // 3项全部满足的分数
+  final int twoSatisfied; // 满足2项的分数
+  final int oneSatisfied; // 满足1项的分数
+  final int noneSatisfied; // 一项不满足的分数
+  
+  MacdScoreConfig({
+    required this.allThreeSatisfied,
+    required this.twoSatisfied,
+    required this.oneSatisfied,
+    required this.noneSatisfied,
+  });
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'allThreeSatisfied': allThreeSatisfied,
+      'twoSatisfied': twoSatisfied,
+      'oneSatisfied': oneSatisfied,
+      'noneSatisfied': noneSatisfied,
+    };
+  }
+  
+  factory MacdScoreConfig.fromJson(Map<String, dynamic> json) {
+    return MacdScoreConfig(
+      allThreeSatisfied: json['allThreeSatisfied'] as int? ?? 5,
+      twoSatisfied: json['twoSatisfied'] as int? ?? 3,
+      oneSatisfied: json['oneSatisfied'] as int? ?? 1,
+      noneSatisfied: json['noneSatisfied'] as int? ?? 0,
+    );
+  }
+  
+  MacdScoreConfig copyWith({
+    int? allThreeSatisfied,
+    int? twoSatisfied,
+    int? oneSatisfied,
+    int? noneSatisfied,
+  }) {
+    return MacdScoreConfig(
+      allThreeSatisfied: allThreeSatisfied ?? this.allThreeSatisfied,
+      twoSatisfied: twoSatisfied ?? this.twoSatisfied,
+      oneSatisfied: oneSatisfied ?? this.oneSatisfied,
+      noneSatisfied: noneSatisfied ?? this.noneSatisfied,
     );
   }
 }
